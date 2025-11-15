@@ -124,11 +124,19 @@ function scrapeJobData() {
     });
   };
 
+  // Helper: Checks if the rich text array contains any non-whitespace content.
+  const hasMeaningfulContent = (richTextArray) => {
+    // Combine all content strings, trim whitespace, and check length
+    const fullText = richTextArray.map(item => item.text?.content || '').join('');
+    return fullText.trim().length > 0;
+  };
+
   // Helper: Finalizes the current buffer as a Notion paragraph block
   const finalizeParagraph = (blocksArray) => {
     const cleanedBuffer = cleanRichTextArray(currentParagraphBuffer);
 
-    if (cleanedBuffer.length > 0) {
+    // 🛑 UPDATED CHECK: Only create a block if it contains meaningful content
+    if (hasMeaningfulContent(cleanedBuffer)) {
       blocksArray.push({
         object: 'block',
         type: 'paragraph',
@@ -173,12 +181,19 @@ function scrapeJobData() {
 
         const nestedContent = extractInlineRichText(child, isList);
         const isBold = child.tagName === 'STRONG' || child.tagName === 'B';
+        const isItalic = child.tagName === 'I' || child.tagName === 'EM';
         const isLink = child.tagName === 'A' && child.href;
 
         nestedContent.forEach(item => {
           if (item.type !== 'BREAK' && item.text) {
+            // Initialize annotations if it doesn't exist
+            item.annotations = item.annotations || {};
+
             if (isBold) {
-              item.annotations = { ...item.annotations, bold: true };
+              item.annotations.bold = true;
+            }
+            if (isItalic) {
+              item.annotations.italic = true;
             }
             if (isLink) {
               item.href = child.href;
@@ -396,7 +411,8 @@ function scrapeJobData() {
                 const rawParagraphContent = extractInlineRichText(paragraphElement);
                 const paragraphContent = cleanRichTextArray(rawParagraphContent);
 
-                if (paragraphContent.length > 0) {
+                // 🛑 UPDATED CHECK: Use the meaningful content check here as well
+                if (hasMeaningfulContent(paragraphContent)) {
                   contentBlocks.push({
                     object: 'block',
                     type: 'paragraph',
