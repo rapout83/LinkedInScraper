@@ -1,4 +1,7 @@
-// Load saved configuration when popup opens
+// ============================================================================
+// POPUP INITIALIZATION
+// ============================================================================
+
 document.addEventListener('DOMContentLoaded', async () => {
   const config = await chrome.storage.sync.get(['notionToken', 'databaseId']);
 
@@ -18,7 +21,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 });
 
-// Save configuration
+// ============================================================================
+// CONFIGURATION MANAGEMENT
+// ============================================================================
+
 document.getElementById('saveConfig').addEventListener('click', async () => {
   const notionToken = document.getElementById('notionToken').value.trim();
   const databaseId = document.getElementById('databaseId').value.trim();
@@ -36,7 +42,10 @@ document.getElementById('saveConfig').addEventListener('click', async () => {
   showStatus('Configuration saved successfully!', 'success');
 });
 
-// Save job to Notion
+// ============================================================================
+// JOB SAVING TO NOTION
+// ============================================================================
+
 document.getElementById('saveButton').addEventListener('click', async () => {
   const config = await chrome.storage.sync.get(['notionToken', 'databaseId']);
 
@@ -60,16 +69,8 @@ document.getElementById('saveButton').addEventListener('click', async () => {
 
     const jobData = results[0].result;
 
-    /*
-    // 1. Send message to content.js
-    const response = await chrome.tabs.sendMessage(tab.id, { action: 'scrapeJob' });
-    */
-
     if (!jobData || !jobData.title) {
       throw new Error("Scraping failed: Data was null or empty");
-      //showStatus('Could not extract job data. Make sure you\'re on a job posting page.', 'error');
-      //document.getElementById('saveButton').disabled = false;
-      //return;
     }
 
     showStatus('Saving to Notion...', 'info');
@@ -89,7 +90,6 @@ document.getElementById('saveButton').addEventListener('click', async () => {
     });
 
   } catch (err) {
-    // 3. This catches the "Receiving end does not exist" error
     if (err.message.includes('Receiving end does not exist')) {
       showStatus('Error: Content script is not running. Please refresh the LinkedIn tab and try again.', 'error');
     } else {
@@ -100,42 +100,52 @@ document.getElementById('saveButton').addEventListener('click', async () => {
   }
 });
 
-// Function that will be injected into the page to scrape data
+// ============================================================================
+// JOB DATA SCRAPING
+// ============================================================================
+
+/**
+ * Scrapes job data from a LinkedIn job posting page.
+ * This function is injected into the page context via chrome.scripting.executeScript.
+ * @returns {Promise<Object>} Job data including title, company, location, description, etc.
+ */
 function scrapeJobData() {
-  // State Variables (Now scoped locally to be sent with the function)
+  // State variables for building Notion-compatible description blocks
   let currentParagraphBuffer = [];
-  let pendingSpace = false; // CRITICAL: Flag to manage missing spaces
+  let pendingSpace = false; // Flag to manage missing spaces between elements
   const BREAK_MARKER = { type: 'BREAK' };
 
-  // Helper: Guarantees clean, Notion-compatible rich text arrays
+  /**
+   * Filters out empty or invalid rich text items while preserving intentional spaces.
+   * @param {Array} richTextArray - Array of Notion rich text objects
+   * @returns {Array} Cleaned array of rich text objects
+   */
   const cleanRichTextArray = (richTextArray) => {
     return richTextArray.filter(item => {
       if (!item || !item.text) return false;
-
       const content = item.text.content;
-
-      // 1. Keep if content has meaningful characters (trimmed length > 0)
-      if (content.trim().length > 0) return true;
-
-      // 2. Keep if content is EXACTLY the single space we inserted as a delimiter
-      if (content === ' ') return true;
-
-      return false;
+      // Keep meaningful content or intentional single spaces
+      return content.trim().length > 0 || content === ' ';
     });
   };
 
-  // Helper: Checks if the rich text array contains any non-whitespace content.
+  /**
+   * Checks if a rich text array contains any non-whitespace content.
+   * @param {Array} richTextArray - Array of Notion rich text objects
+   * @returns {boolean} True if content has meaningful text
+   */
   const hasMeaningfulContent = (richTextArray) => {
-    // Combine all content strings, trim whitespace, and check length
     const fullText = richTextArray.map(item => item.text?.content || '').join('');
     return fullText.trim().length > 0;
   };
 
-  // Helper: Finalizes the current buffer as a Notion paragraph block
+  /**
+   * Finalizes the current paragraph buffer and adds it to the blocks array if it has content.
+   * @param {Array} blocksArray - Array to push the finalized paragraph block to
+   */
   const finalizeParagraph = (blocksArray) => {
     const cleanedBuffer = cleanRichTextArray(currentParagraphBuffer);
 
-    // 🛑 UPDATED CHECK: Only create a block if it contains meaningful content
     if (hasMeaningfulContent(cleanedBuffer)) {
       blocksArray.push({
         object: 'block',
@@ -149,7 +159,13 @@ function scrapeJobData() {
     pendingSpace = false;
   };
 
-  // Helper: Extracts rich text from a node, handling breaks only for BR
+  /**
+   * Recursively extracts rich text with formatting from a DOM node.
+   * Handles text nodes, formatting tags (bold, italic), links, and line breaks.
+   * @param {Node} node - The DOM node to extract text from
+   * @param {boolean} isList - Whether this node is within a list item
+   * @returns {Array} Array of rich text objects with formatting
+   */
   const extractInlineRichText = (node, isList = false) => {
     let richTextArray = [];
 
@@ -162,7 +178,7 @@ function scrapeJobData() {
       } else if (child.nodeType === 1) { // Element Node
 
         if (child.tagName === 'BR') {
-          // In list items, BR is space. In paragraphs, BR is a soft break.
+          // In lists, BR becomes a space; in paragraphs, it's a soft break
           if (isList) {
             richTextArray.push({ text: { content: ' ' } });
           } else {
@@ -171,33 +187,26 @@ function scrapeJobData() {
           return;
         }
 
-        // 🛑 CORE IMPROVEMENT: Recursively process content of nested paragraphs/lists as plain text.
-        // We only want to handle P/UL/OL at the top level of iteration.
+        // Recursively process nested block elements as inline text
         if (child.tagName === 'P' || child.tagName === 'UL' || child.tagName === 'OL' || child.tagName === 'LI') {
           const nestedContent = extractInlineRichText(child, isList);
           richTextArray.push(...nestedContent);
           return;
         }
 
+        // Process inline formatting elements (bold, italic, links, etc.)
         const nestedContent = extractInlineRichText(child, isList);
         const isBold = child.tagName === 'STRONG' || child.tagName === 'B';
         const isItalic = child.tagName === 'I' || child.tagName === 'EM';
         const isLink = child.tagName === 'A' && child.href;
 
+        // Apply formatting annotations to nested content
         nestedContent.forEach(item => {
           if (item.type !== 'BREAK' && item.text) {
-            // Initialize annotations if it doesn't exist
             item.annotations = item.annotations || {};
-
-            if (isBold) {
-              item.annotations.bold = true;
-            }
-            if (isItalic) {
-              item.annotations.italic = true;
-            }
-            if (isLink) {
-              item.href = child.href;
-            }
+            if (isBold) item.annotations.bold = true;
+            if (isItalic) item.annotations.italic = true;
+            if (isLink) item.href = child.href;
           }
         });
         richTextArray.push(...nestedContent);
@@ -206,20 +215,28 @@ function scrapeJobData() {
     return richTextArray;
   };
 
+  /**
+   * Helper to extract rich text from list items.
+   * @param {Node} node - The list item node
+   * @returns {Array} Array of rich text objects
+   */
   const extractListItemRichText = (node) => extractInlineRichText(node, true);
 
   return new Promise((resolve, reject) => {
-    const KEY_ELEMENT_SELECTOR = 'h1.t-24';
+    const KEY_ELEMENT_SELECTOR = 'h1.t-24'; // Job title element
     const MAX_WAIT_TIME_MS = 5000;
     let observer = null;
 
-    // Timeout logic...
+    // Set timeout to prevent infinite waiting
     const timeout = setTimeout(() => {
       if (observer) observer.disconnect();
       reject(new Error("Timeout: Job content did not load after 10 seconds."));
     }, MAX_WAIT_TIME_MS);
 
-    // Scraping logic (must contain all your selectors and return the data object)
+    /**
+     * Executes the actual scraping logic once the page is ready.
+     * @returns {Object|null} Scraped job data or null if not ready
+     */
     const executeScraping = () => {
       const titleElement = document.querySelector(KEY_ELEMENT_SELECTOR);
 
@@ -227,6 +244,7 @@ function scrapeJobData() {
         clearTimeout(timeout);
         if (observer) observer.disconnect();
 
+        // Initialize job data object
         const data = {
           url: '',
           companyLogo: '',
@@ -239,105 +257,79 @@ function scrapeJobData() {
           contactPerson: '',
           contactPersonUrl: ''
         };
-        const currentUrl = window.location.href;
 
-        // The RegEx searches the entire URL string for the first instance of 
-        // exactly 10 consecutive digits (\d{10}).
-        const jobIdRegex = /(\d{10})/;
-
-        // .match() returns an array if found, where the first captured group (the digits) is at index 1.
-        const match = currentUrl.match(jobIdRegex);
-        const jobId = match ? match[1] : null;
-
-        if (jobId) {
-          // Construct the canonical, clean URL using the detected job ID
-          // This format is the standard direct link for LinkedIn job postings.
-          data.url = `https://www.linkedin.com/jobs/view/${jobId}`;
+        // Extract job ID from URL and construct canonical LinkedIn job URL
+        const jobIdMatch = window.location.href.match(/(\d{10})/);
+        if (jobIdMatch) {
+          data.url = `https://www.linkedin.com/jobs/view/${jobIdMatch[1]}`;
         }
 
-        // Company Logo
+        // === Basic Job Information ===
+
         const logoElement = document.querySelector('img.EntityPhoto-square-2, .job-details-jobs-unified-top-card__container--two-pane img.EntityPhoto-square-1');
         data.companyLogo = logoElement ? logoElement.src : '';
 
-        // Company Name
         const companyElement = document.querySelector('.job-details-jobs-unified-top-card__company-name a');
         data.company = companyElement ? companyElement.textContent.trim() : '';
 
-        // Job Title
         const titleElement = document.querySelector('h1.t-24');
         data.title = titleElement ? titleElement.textContent.trim() : '';
 
-        // Location
         const locationElement = document.querySelector('.job-details-jobs-unified-top-card__primary-description-container span.tvm__text');
         data.location = locationElement ? locationElement.textContent.trim() : '';
 
-        // Bubbles 
+        // === Extract Work Type and Salary from Info Bubbles ===
+
         const bubbles = document.querySelectorAll('.job-details-fit-level-preferences span.tvm__text');
-        // Define the patterns
         const workTypeKeywords = ['Remote', 'Hybrid', 'On-site'];
-        // RegEx: Detects currency (£, $, €) + numbers (with optional comma) + 'K' (case insensitive)
         const salaryRegex = /([£$€])\s*\d[\d,]*K/i;
 
-        // Use boolean flags to ensure we only scrape the first found instance
-        let workTypeFound = false;
-        let salaryFound = false;
-
-        // Loop through all elements found
         for (const bubbleElement of bubbles) {
           const bubbleText = bubbleElement.textContent.trim();
 
-          // --- 1. Check for Work Type ---
-          if (!workTypeFound) {
-            for (const keyword of workTypeKeywords) {
-              if (bubbleText.includes(keyword)) {
-                data.workType = keyword;
-                workTypeFound = true;
-              }
-            }
+          // Check for work type
+          if (!data.workType) {
+            const matchedType = workTypeKeywords.find(keyword => bubbleText.includes(keyword));
+            if (matchedType) data.workType = matchedType;
           }
 
-          // --- 2. Check for Salary Range ---
-          if (!salaryFound) {
-            // Use the regex test() method to see if the pattern exists in the text
-            if (salaryRegex.test(bubbleText)) {
-              data.salary = bubbleText; // Capture the entire bubble text as the salary string
-              salaryFound = true;
-            }
+          // Check for salary
+          if (!data.salary && salaryRegex.test(bubbleText)) {
+            data.salary = bubbleText;
           }
 
-          // Optional: Stop the loop once both pieces of data are secured
-          if (workTypeFound && salaryFound) {
-            break;
-          }
+          // Exit early if both values are found
+          if (data.workType && data.salary) break;
         }
 
-        // Job Description
+        // === Parse Job Description into Notion Blocks ===
+
         const descriptionContainer = document.querySelector('.jobs-description__content .mt4, .jobs-box__html-content .mt4');
-        const contentBlocks = []; // Array to hold the structured output
+        const contentBlocks = [];
 
         if (descriptionContainer) {
           const mainParagraph = descriptionContainer.querySelector('p[dir="ltr"]');
-
-          // Use the inner P tag for iteration if it exists (old format), 
-          // otherwise use the container itself (new format block wrappers).
+          // LinkedIn uses different formats: old has inner <p>, new uses direct container
           const iterationRoot = mainParagraph || descriptionContainer;
 
           currentParagraphBuffer = [];
           pendingSpace = false;
 
           Array.from(iterationRoot.childNodes).forEach(node => {
-            if (node.nodeType === 8) { // Skip Comment Nodes
-              return;
-            }
+            // Skip HTML comment nodes
+            if (node.nodeType === 8) return;
 
-            if (node.nodeType === 3) { // Text Node
+            // Handle text nodes
+            if (node.nodeType === 3) {
               const text = node.nodeValue;
 
+              // Whitespace-only text becomes a pending space
               if (text && text.trim().length === 0) {
                 pendingSpace = true;
                 return;
               }
 
+              // Insert pending space if needed
               if (pendingSpace && currentParagraphBuffer.length > 0) {
                 currentParagraphBuffer.push({ text: { content: ' ' } });
               }
@@ -347,34 +339,34 @@ function scrapeJobData() {
                 currentParagraphBuffer.push({ text: { content: text } });
               }
 
-            } else if (node.nodeType === 1) { // Element Node
+            } else if (node.nodeType === 1) { // Element nodes
 
+              // Insert pending space before processing element
               if (pendingSpace && currentParagraphBuffer.length > 0) {
                 currentParagraphBuffer.push({ text: { content: ' ' } });
                 pendingSpace = false;
               }
 
+              // BR tag creates a paragraph break
               if (node.tagName === 'BR') {
-                // A BR tag forces the current buffer to finalize as a paragraph
                 finalizeParagraph(contentBlocks);
                 pendingSpace = false;
                 return;
               }
 
+              // Check for list containers (UL or OL)
               const listContainer = node.tagName === 'UL' || node.tagName === 'OL' ? node : node.querySelector('ul, ol');
 
-              // 🛑 NEW: Check for a Paragraph element, either directly or nested in a SPAN
+              // Check for paragraph elements (direct or wrapped in SPAN)
               let paragraphElement = null;
               if (node.tagName === 'P') {
                 paragraphElement = node;
               } else if (node.tagName === 'SPAN' && node.children.length === 1 && node.firstElementChild.tagName === 'P') {
-                // This handles the <span><p>...</p></span> case
                 paragraphElement = node.firstElementChild;
               }
 
-
+              // Handle list blocks
               if (listContainer) {
-                // List found: Finalize any previous content, process list, then finalize again
                 finalizeParagraph(contentBlocks);
 
                 const listType = listContainer.tagName === 'UL' ? 'bulleted_list_item' : 'numbered_list_item';
@@ -396,22 +388,18 @@ function scrapeJobData() {
                   }
                 });
 
-                // Clear the buffer and ensure no space is pending after a list block
                 currentParagraphBuffer = [];
                 pendingSpace = false;
                 return;
               }
 
-              // 🛑 EXPLICIT PARAGRAPH HANDLING
+              // Handle paragraph blocks
               if (paragraphElement) {
-                // Paragraph found: Finalize any previous content
                 finalizeParagraph(contentBlocks);
 
-                // Extract content from this P tag as a new, separate block
                 const rawParagraphContent = extractInlineRichText(paragraphElement);
                 const paragraphContent = cleanRichTextArray(rawParagraphContent);
 
-                // 🛑 UPDATED CHECK: Use the meaningful content check here as well
                 if (hasMeaningfulContent(paragraphContent)) {
                   contentBlocks.push({
                     object: 'block',
@@ -422,23 +410,20 @@ function scrapeJobData() {
                   });
                 }
 
-                // Clear the buffer and ensure no space is pending after a paragraph block
                 currentParagraphBuffer = [];
                 pendingSpace = false;
                 return;
               }
 
-              // Handle generic inline elements (e.g., <strong>, <a>, <span>)
+              // Handle inline elements (bold, italic, links, etc.)
               const nodeContent = extractInlineRichText(node);
 
-              // Check if processing the element resulted in an internal break (only possible via BR)
+              // Check for internal line breaks
               const breakIndex = nodeContent.findIndex(item => item.type === 'BREAK');
-
               if (breakIndex !== -1) {
                 currentParagraphBuffer.push(...nodeContent.slice(0, breakIndex));
                 finalizeParagraph(contentBlocks);
-                const remainingContent = nodeContent.slice(breakIndex + 1);
-                currentParagraphBuffer.push(...remainingContent);
+                currentParagraphBuffer.push(...nodeContent.slice(breakIndex + 1));
                 pendingSpace = false;
                 return;
               }
@@ -447,13 +432,14 @@ function scrapeJobData() {
             }
           });
 
-          // Finalize any remaining content after the last node
+          // Finalize any remaining content after processing all nodes
           finalizeParagraph(contentBlocks);
         }
-        // Ensure jobData holds the structured array now:
+
         data.descriptionBlocks = contentBlocks.length > 0 ? contentBlocks : [{ type: 'paragraph', text: 'No description found.' }];
 
-        // Contact Person
+        // === Extract Contact Person ===
+
         const hiringTeamElement = document.querySelector('.hirer-card__hirer-information a');
         data.contactPerson = hiringTeamElement ? hiringTeamElement.textContent.trim() : '';
         data.contactPersonUrl = hiringTeamElement ? hiringTeamElement.href : '';
@@ -463,13 +449,14 @@ function scrapeJobData() {
       return null;
     };
 
-    // Initial check and observer setup...
+    // Try scraping immediately
     const initialData = executeScraping();
     if (initialData) {
       return resolve(initialData);
     }
 
-    observer = new MutationObserver((mutationsList, obs) => {
+    // If not ready, observe DOM changes until content loads
+    observer = new MutationObserver(() => {
       const data = executeScraping();
       if (data) {
         resolve(data);
@@ -480,6 +467,15 @@ function scrapeJobData() {
   });
 }
 
+// ============================================================================
+// UTILITY FUNCTIONS
+// ============================================================================
+
+/**
+ * Displays a status message to the user.
+ * @param {string} message - The message to display
+ * @param {string} type - Message type: 'success', 'error', or 'info'
+ */
 function showStatus(message, type) {
   const statusDiv = document.getElementById('status');
   statusDiv.textContent = message;
