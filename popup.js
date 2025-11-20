@@ -223,8 +223,7 @@ function scrapeJobData() {
   const extractListItemRichText = (node) => extractInlineRichText(node, true);
 
   return new Promise((resolve, reject) => {
-    const KEY_ELEMENT_SELECTOR = 'h1.t-24'; // Job title element
-    const MAX_WAIT_TIME_MS = 5000;
+    const MAX_WAIT_TIME_MS = 10000; // Increased to 10 seconds
     let observer = null;
 
     // Set timeout to prevent infinite waiting
@@ -234,13 +233,25 @@ function scrapeJobData() {
     }, MAX_WAIT_TIME_MS);
 
     /**
+     * Checks if all critical elements are loaded on the page.
+     * @returns {boolean} True if page is ready for scraping
+     */
+    const isPageReady = () => {
+      const titleElement = document.querySelector('h1.t-24');
+      const companyElement = document.querySelector('.job-details-jobs-unified-top-card__company-name');
+      const descriptionContainer = document.querySelector('.jobs-description__content .mt4, .jobs-box__html-content .mt4');
+
+      // All critical elements must be present
+      return titleElement && companyElement && descriptionContainer;
+    };
+
+    /**
      * Executes the actual scraping logic once the page is ready.
      * @returns {Object|null} Scraped job data or null if not ready
      */
     const executeScraping = () => {
-      const titleElement = document.querySelector(KEY_ELEMENT_SELECTOR);
-
-      if (titleElement) {
+      // Check if all critical content is loaded
+      if (isPageReady()) {
         clearTimeout(timeout);
         if (observer) observer.disconnect();
 
