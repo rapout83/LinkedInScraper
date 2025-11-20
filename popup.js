@@ -253,6 +253,33 @@ function scrapeJobData() {
       const companyElement = document.querySelector('.job-details-jobs-unified-top-card__company-name');
       const descriptionContainer = document.querySelector('.jobs-description__content .mt4, .jobs-box__html-content .mt4');
 
+      // Debug: Try alternative selectors if primary ones fail
+      if (!titleElement || !companyElement || !descriptionContainer) {
+        console.log('[LinkedIn Scraper Debug] Primary selectors failed. Trying alternatives...');
+
+        // Log all h1 elements
+        const allH1s = document.querySelectorAll('h1');
+        console.log('All H1 elements:', Array.from(allH1s).map(h => ({
+          classes: h.className,
+          text: h.textContent?.trim()?.substring(0, 50)
+        })));
+
+        // Log elements with "job" or "company" in class name
+        const jobElements = document.querySelectorAll('[class*="job-details"]');
+        console.log('Job-related elements count:', jobElements.length);
+
+        const companyElements = document.querySelectorAll('[class*="company"]');
+        console.log('Company-related elements:', Array.from(companyElements).slice(0, 5).map(el => ({
+          tag: el.tagName,
+          classes: el.className,
+          text: el.textContent?.trim()?.substring(0, 50)
+        })));
+
+        // Log description-related elements
+        const descElements = document.querySelectorAll('[class*="description"]');
+        console.log('Description-related elements count:', descElements.length);
+      }
+
       // Debug: Log what we found
       console.log('[LinkedIn Scraper Debug] Page ready check:', {
         titleExists: !!titleElement,
