@@ -69,8 +69,20 @@ document.getElementById('saveButton').addEventListener('click', async () => {
 
     const jobData = results[0].result;
 
-    if (!jobData || !jobData.title) {
-      throw new Error("Scraping failed: Data was null or empty");
+    // Debug logging
+    console.log('[LinkedIn Scraper] Scraped data:', jobData);
+
+    if (!jobData) {
+      throw new Error("Scraping failed: No data returned (page may not be ready)");
+    }
+
+    if (!jobData.title) {
+      throw new Error(`Scraping failed: Missing title. Data: ${JSON.stringify({
+        hasTitle: !!jobData.title,
+        hasCompany: !!jobData.company,
+        hasDescription: !!jobData.descriptionBlocks?.length,
+        url: jobData.url
+      })}`);
     }
 
     showStatus('Saving to Notion...', 'info');
@@ -241,8 +253,20 @@ function scrapeJobData() {
       const companyElement = document.querySelector('.job-details-jobs-unified-top-card__company-name');
       const descriptionContainer = document.querySelector('.jobs-description__content .mt4, .jobs-box__html-content .mt4');
 
-      // All critical elements must be present
-      return titleElement && companyElement && descriptionContainer;
+      // Debug: Log what we found
+      console.log('[LinkedIn Scraper Debug] Page ready check:', {
+        titleExists: !!titleElement,
+        titleText: titleElement?.textContent?.trim(),
+        companyExists: !!companyElement,
+        companyText: companyElement?.textContent?.trim(),
+        descriptionExists: !!descriptionContainer,
+        descriptionHasContent: !!descriptionContainer?.textContent?.trim()
+      });
+
+      // All critical elements must be present AND have content
+      return titleElement && titleElement.textContent?.trim() &&
+             companyElement && companyElement.textContent?.trim() &&
+             descriptionContainer && descriptionContainer.textContent?.trim();
     };
 
     /**
