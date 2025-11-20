@@ -257,12 +257,36 @@ function scrapeJobData() {
       if (!titleElement || !companyElement || !descriptionContainer) {
         console.log('[LinkedIn Scraper Debug] Primary selectors failed. Trying alternatives...');
 
+        // Check for iframes
+        const iframes = document.querySelectorAll('iframe');
+        console.log('Iframes found:', iframes.length);
+
+        // Check for shadow roots
+        const elementsWithShadow = Array.from(document.querySelectorAll('*')).filter(el => el.shadowRoot);
+        console.log('Elements with Shadow DOM:', elementsWithShadow.length);
+
+        // Log body structure
+        console.log('Body children count:', document.body.children.length);
+        console.log('Body first 5 children:', Array.from(document.body.children).slice(0, 5).map(el => ({
+          tag: el.tagName,
+          id: el.id,
+          classes: el.className.substring(0, 50)
+        })));
+
         // Log all h1 elements
         const allH1s = document.querySelectorAll('h1');
         console.log('All H1 elements:', Array.from(allH1s).map(h => ({
           classes: h.className,
           text: h.textContent?.trim()?.substring(0, 50)
         })));
+
+        // Try broader selectors
+        const anyJobTitle = document.querySelector('[class*="job"][class*="title"], h1, [role="heading"]');
+        console.log('Any job title element found:', !!anyJobTitle, anyJobTitle?.textContent?.substring(0, 50));
+
+        // Check for modal/overlay
+        const modals = document.querySelectorAll('[role="dialog"], .modal, [class*="modal"], [class*="overlay"]');
+        console.log('Modal/overlay elements:', modals.length);
 
         // Log elements with "job" or "company" in class name
         const jobElements = document.querySelectorAll('[class*="job-details"]');
