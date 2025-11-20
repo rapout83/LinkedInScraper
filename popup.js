@@ -62,18 +62,23 @@ document.getElementById('saveButton').addEventListener('click', async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
     // Execute content script to scrape data
+    // allFrames: true allows scraping from iframes (needed for SPA navigation)
     const results = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
+      target: { tabId: tab.id, allFrames: true },
       func: scrapeJobData
     });
 
-    const jobData = results[0].result;
+    // When allFrames: true, results contains data from all frames
+    // Find the frame that has valid job data (title exists)
+    console.log('[LinkedIn Scraper] Results from all frames:', results.length);
+
+    const jobData = results.find(r => r.result && r.result.title)?.result;
 
     // Debug logging
     console.log('[LinkedIn Scraper] Scraped data:', jobData);
 
     if (!jobData) {
-      throw new Error("Scraping failed: No data returned (page may not be ready)");
+      throw new Error("Scraping failed: No data returned from any frame (page may not be ready)");
     }
 
     if (!jobData.title) {
@@ -235,9 +240,8 @@ function scrapeJobData() {
   const extractListItemRichText = (node) => extractInlineRichText(node, true);
 
   return new Promise((resolve, reject) => {
-    const MAX_WAIT_TIME_MS = 10000; // Increased to 10 seconds
+    const MAX_WAIT_TIME_MS = 10000;
     let observer = null;
-    let scrapingDocument = document; // Will be updated if content is in iframe
 
     // Set timeout to prevent infinite waiting
     const timeout = setTimeout(() => {
@@ -247,99 +251,12 @@ function scrapeJobData() {
 
     /**
      * Checks if all critical elements are loaded on the page.
-     * Checks both main document and iframes.
      * @returns {boolean} True if page is ready for scraping
      */
     const isPageReady = () => {
-      // First check main document
-      let titleElement = document.querySelector('h1.t-24');
-      let companyElement = document.querySelector('.job-details-jobs-unified-top-card__company-name');
-      let descriptionContainer = document.querySelector('.jobs-description__content .mt4, .jobs-box__html-content .mt4');
-
-      // If not found, check inside iframes
-      if (!titleElement || !companyElement || !descriptionContainer) {
-        const iframes = document.querySelectorAll('iframe');
-
-        for (const iframe of iframes) {
-          try {
-            const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
-            if (!iframeDoc) continue;
-
-            titleElement = titleElement || iframeDoc.querySelector('h1.t-24');
-            companyElement = companyElement || iframeDoc.querySelector('.job-details-jobs-unified-top-card__company-name');
-            descriptionContainer = descriptionContainer || iframeDoc.querySelector('.jobs-description__content .mt4, .jobs-box__html-content .mt4');
-
-            if (titleElement && companyElement && descriptionContainer) {
-              console.log('[LinkedIn Scraper Debug] Found content in iframe!');
-              scrapingDocument = iframeDoc; // Update scraping context
-              break;
-            }
-          } catch (e) {
-            console.log('[LinkedIn Scraper Debug] Cannot access iframe (cross-origin):', e.message);
-          }
-        }
-      }
-
-      // Debug: Try alternative selectors if primary ones fail
-      if (!titleElement || !companyElement || !descriptionContainer) {
-        console.log('[LinkedIn Scraper Debug] Primary selectors failed. Trying alternatives...');
-
-        // Check for iframes
-        const iframes = document.querySelectorAll('iframe');
-        console.log('Iframes found:', iframes.length);
-
-        // Check for shadow roots
-        const elementsWithShadow = Array.from(document.querySelectorAll('*')).filter(el => el.shadowRoot);
-        console.log('Elements with Shadow DOM:', elementsWithShadow.length);
-
-        // Log body structure
-        console.log('Body children count:', document.body.children.length);
-        console.log('Body first 5 children:', Array.from(document.body.children).slice(0, 5).map(el => ({
-          tag: el.tagName,
-          id: el.id,
-          classes: el.className.substring(0, 50)
-        })));
-
-        // Log all h1 elements
-        const allH1s = document.querySelectorAll('h1');
-        console.log('All H1 elements:', Array.from(allH1s).map(h => ({
-          classes: h.className,
-          text: h.textContent?.trim()?.substring(0, 50)
-        })));
-
-        // Try broader selectors
-        const anyJobTitle = document.querySelector('[class*="job"][class*="title"], h1, [role="heading"]');
-        console.log('Any job title element found:', !!anyJobTitle, anyJobTitle?.textContent?.substring(0, 50));
-
-        // Check for modal/overlay
-        const modals = document.querySelectorAll('[role="dialog"], .modal, [class*="modal"], [class*="overlay"]');
-        console.log('Modal/overlay elements:', modals.length);
-
-        // Log elements with "job" or "company" in class name
-        const jobElements = document.querySelectorAll('[class*="job-details"]');
-        console.log('Job-related elements count:', jobElements.length);
-
-        const companyElements = document.querySelectorAll('[class*="company"]');
-        console.log('Company-related elements:', Array.from(companyElements).slice(0, 5).map(el => ({
-          tag: el.tagName,
-          classes: el.className,
-          text: el.textContent?.trim()?.substring(0, 50)
-        })));
-
-        // Log description-related elements
-        const descElements = document.querySelectorAll('[class*="description"]');
-        console.log('Description-related elements count:', descElements.length);
-      }
-
-      // Debug: Log what we found
-      console.log('[LinkedIn Scraper Debug] Page ready check:', {
-        titleExists: !!titleElement,
-        titleText: titleElement?.textContent?.trim(),
-        companyExists: !!companyElement,
-        companyText: companyElement?.textContent?.trim(),
-        descriptionExists: !!descriptionContainer,
-        descriptionHasContent: !!descriptionContainer?.textContent?.trim()
-      });
+      const titleElement = document.querySelector('h1.t-24');
+      const companyElement = document.querySelector('.job-details-jobs-unified-top-card__company-name');
+      const descriptionContainer = document.querySelector('.jobs-description__content .mt4, .jobs-box__html-content .mt4');
 
       // All critical elements must be present AND have content
       return titleElement && titleElement.textContent?.trim() &&
@@ -379,21 +296,21 @@ function scrapeJobData() {
 
         // === Basic Job Information ===
 
-        const logoElement = scrapingDocument.querySelector('img.EntityPhoto-square-2, .job-details-jobs-unified-top-card__container--two-pane img.EntityPhoto-square-1');
+        const logoElement = document.querySelector('img.EntityPhoto-square-2, .job-details-jobs-unified-top-card__container--two-pane img.EntityPhoto-square-1');
         data.companyLogo = logoElement ? logoElement.src : '';
 
-        const companyElement = scrapingDocument.querySelector('.job-details-jobs-unified-top-card__company-name a');
+        const companyElement = document.querySelector('.job-details-jobs-unified-top-card__company-name a');
         data.company = companyElement ? companyElement.textContent.trim() : '';
 
-        const titleElement = scrapingDocument.querySelector('h1.t-24');
+        const titleElement = document.querySelector('h1.t-24');
         data.title = titleElement ? titleElement.textContent.trim() : '';
 
-        const locationElement = scrapingDocument.querySelector('.job-details-jobs-unified-top-card__primary-description-container span.tvm__text');
+        const locationElement = document.querySelector('.job-details-jobs-unified-top-card__primary-description-container span.tvm__text');
         data.location = locationElement ? locationElement.textContent.trim() : '';
 
         // === Extract Work Type and Salary from Info Bubbles ===
 
-        const bubbles = scrapingDocument.querySelectorAll('.job-details-fit-level-preferences span.tvm__text');
+        const bubbles = document.querySelectorAll('.job-details-fit-level-preferences span.tvm__text');
         const workTypeKeywords = ['Remote', 'Hybrid', 'On-site'];
         const salaryRegex = /([£$€])\s*\d[\d,]*K/i;
 
@@ -417,7 +334,7 @@ function scrapeJobData() {
 
         // === Parse Job Description into Notion Blocks ===
 
-        const descriptionContainer = scrapingDocument.querySelector('.jobs-description__content .mt4, .jobs-box__html-content .mt4');
+        const descriptionContainer = document.querySelector('.jobs-description__content .mt4, .jobs-box__html-content .mt4');
         const contentBlocks = [];
 
         if (descriptionContainer) {
@@ -553,7 +470,7 @@ function scrapeJobData() {
 
         // === Extract Contact Person ===
 
-        const hiringTeamElement = scrapingDocument.querySelector('.hirer-card__hirer-information a');
+        const hiringTeamElement = document.querySelector('.hirer-card__hirer-information a');
         data.contactPerson = hiringTeamElement ? hiringTeamElement.textContent.trim() : '';
         data.contactPersonUrl = hiringTeamElement ? hiringTeamElement.href : '';
 
