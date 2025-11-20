@@ -237,6 +237,7 @@ function scrapeJobData() {
   return new Promise((resolve, reject) => {
     const MAX_WAIT_TIME_MS = 10000; // Increased to 10 seconds
     let observer = null;
+    let scrapingDocument = document; // Will be updated if content is in iframe
 
     // Set timeout to prevent infinite waiting
     const timeout = setTimeout(() => {
@@ -246,12 +247,38 @@ function scrapeJobData() {
 
     /**
      * Checks if all critical elements are loaded on the page.
+     * Checks both main document and iframes.
      * @returns {boolean} True if page is ready for scraping
      */
     const isPageReady = () => {
-      const titleElement = document.querySelector('h1.t-24');
-      const companyElement = document.querySelector('.job-details-jobs-unified-top-card__company-name');
-      const descriptionContainer = document.querySelector('.jobs-description__content .mt4, .jobs-box__html-content .mt4');
+      // First check main document
+      let titleElement = document.querySelector('h1.t-24');
+      let companyElement = document.querySelector('.job-details-jobs-unified-top-card__company-name');
+      let descriptionContainer = document.querySelector('.jobs-description__content .mt4, .jobs-box__html-content .mt4');
+
+      // If not found, check inside iframes
+      if (!titleElement || !companyElement || !descriptionContainer) {
+        const iframes = document.querySelectorAll('iframe');
+
+        for (const iframe of iframes) {
+          try {
+            const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+            if (!iframeDoc) continue;
+
+            titleElement = titleElement || iframeDoc.querySelector('h1.t-24');
+            companyElement = companyElement || iframeDoc.querySelector('.job-details-jobs-unified-top-card__company-name');
+            descriptionContainer = descriptionContainer || iframeDoc.querySelector('.jobs-description__content .mt4, .jobs-box__html-content .mt4');
+
+            if (titleElement && companyElement && descriptionContainer) {
+              console.log('[LinkedIn Scraper Debug] Found content in iframe!');
+              scrapingDocument = iframeDoc; // Update scraping context
+              break;
+            }
+          } catch (e) {
+            console.log('[LinkedIn Scraper Debug] Cannot access iframe (cross-origin):', e.message);
+          }
+        }
+      }
 
       // Debug: Try alternative selectors if primary ones fail
       if (!titleElement || !companyElement || !descriptionContainer) {
@@ -352,21 +379,21 @@ function scrapeJobData() {
 
         // === Basic Job Information ===
 
-        const logoElement = document.querySelector('img.EntityPhoto-square-2, .job-details-jobs-unified-top-card__container--two-pane img.EntityPhoto-square-1');
+        const logoElement = scrapingDocument.querySelector('img.EntityPhoto-square-2, .job-details-jobs-unified-top-card__container--two-pane img.EntityPhoto-square-1');
         data.companyLogo = logoElement ? logoElement.src : '';
 
-        const companyElement = document.querySelector('.job-details-jobs-unified-top-card__company-name a');
+        const companyElement = scrapingDocument.querySelector('.job-details-jobs-unified-top-card__company-name a');
         data.company = companyElement ? companyElement.textContent.trim() : '';
 
-        const titleElement = document.querySelector('h1.t-24');
+        const titleElement = scrapingDocument.querySelector('h1.t-24');
         data.title = titleElement ? titleElement.textContent.trim() : '';
 
-        const locationElement = document.querySelector('.job-details-jobs-unified-top-card__primary-description-container span.tvm__text');
+        const locationElement = scrapingDocument.querySelector('.job-details-jobs-unified-top-card__primary-description-container span.tvm__text');
         data.location = locationElement ? locationElement.textContent.trim() : '';
 
         // === Extract Work Type and Salary from Info Bubbles ===
 
-        const bubbles = document.querySelectorAll('.job-details-fit-level-preferences span.tvm__text');
+        const bubbles = scrapingDocument.querySelectorAll('.job-details-fit-level-preferences span.tvm__text');
         const workTypeKeywords = ['Remote', 'Hybrid', 'On-site'];
         const salaryRegex = /([£$€])\s*\d[\d,]*K/i;
 
@@ -390,7 +417,7 @@ function scrapeJobData() {
 
         // === Parse Job Description into Notion Blocks ===
 
-        const descriptionContainer = document.querySelector('.jobs-description__content .mt4, .jobs-box__html-content .mt4');
+        const descriptionContainer = scrapingDocument.querySelector('.jobs-description__content .mt4, .jobs-box__html-content .mt4');
         const contentBlocks = [];
 
         if (descriptionContainer) {
@@ -526,7 +553,7 @@ function scrapeJobData() {
 
         // === Extract Contact Person ===
 
-        const hiringTeamElement = document.querySelector('.hirer-card__hirer-information a');
+        const hiringTeamElement = scrapingDocument.querySelector('.hirer-card__hirer-information a');
         data.contactPerson = hiringTeamElement ? hiringTeamElement.textContent.trim() : '';
         data.contactPersonUrl = hiringTeamElement ? hiringTeamElement.href : '';
 
