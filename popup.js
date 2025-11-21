@@ -62,18 +62,25 @@ document.getElementById('saveButton').addEventListener('click', async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
     // Execute content script to scrape data
+    // allFrames: true allows scraping from iframes (needed for SPA navigation)
+    // Pass the main page URL so iframe context can extract job ID
     const results = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: scrapeJobData
+      target: { tabId: tab.id, allFrames: true },
+      func: scrapeJobData,
+      args: [tab.url]
     });
 
-    const jobData = results[0].result;
+    // When allFrames: true, results contains data from all frames
+    // Find the frame that has valid job data (title exists)
+    console.log('[LinkedIn Scraper] Results from all frames:', results.length);
+
+    const jobData = results.find(r => r.result && r.result.title)?.result;
 
     // Debug logging
     console.log('[LinkedIn Scraper] Scraped data:', jobData);
 
     if (!jobData) {
-      throw new Error("Scraping failed: No data returned (page may not be ready)");
+      throw new Error("Scraping failed: No data returned from any frame (page may not be ready)");
     }
 
     if (!jobData.title) {
@@ -119,9 +126,10 @@ document.getElementById('saveButton').addEventListener('click', async () => {
 /**
  * Scrapes job data from a LinkedIn job posting page.
  * This function is injected into the page context via chrome.scripting.executeScript.
+ * @param {string} mainPageUrl - The URL of the main page (needed when running in iframe)
  * @returns {Promise<Object>} Job data including title, company, location, description, etc.
  */
-function scrapeJobData() {
+function scrapeJobData(mainPageUrl) {
   // State variables for building Notion-compatible description blocks
   let currentParagraphBuffer = [];
   let pendingSpace = false; // Flag to manage missing spaces between elements
@@ -235,7 +243,7 @@ function scrapeJobData() {
   const extractListItemRichText = (node) => extractInlineRichText(node, true);
 
   return new Promise((resolve, reject) => {
-    const MAX_WAIT_TIME_MS = 10000; // Increased to 10 seconds
+    const MAX_WAIT_TIME_MS = 10000;
     let observer = null;
 
     // Set timeout to prevent infinite waiting
@@ -252,43 +260,6 @@ function scrapeJobData() {
       const titleElement = document.querySelector('h1.t-24');
       const companyElement = document.querySelector('.job-details-jobs-unified-top-card__company-name');
       const descriptionContainer = document.querySelector('.jobs-description__content .mt4, .jobs-box__html-content .mt4');
-
-      // Debug: Try alternative selectors if primary ones fail
-      if (!titleElement || !companyElement || !descriptionContainer) {
-        console.log('[LinkedIn Scraper Debug] Primary selectors failed. Trying alternatives...');
-
-        // Log all h1 elements
-        const allH1s = document.querySelectorAll('h1');
-        console.log('All H1 elements:', Array.from(allH1s).map(h => ({
-          classes: h.className,
-          text: h.textContent?.trim()?.substring(0, 50)
-        })));
-
-        // Log elements with "job" or "company" in class name
-        const jobElements = document.querySelectorAll('[class*="job-details"]');
-        console.log('Job-related elements count:', jobElements.length);
-
-        const companyElements = document.querySelectorAll('[class*="company"]');
-        console.log('Company-related elements:', Array.from(companyElements).slice(0, 5).map(el => ({
-          tag: el.tagName,
-          classes: el.className,
-          text: el.textContent?.trim()?.substring(0, 50)
-        })));
-
-        // Log description-related elements
-        const descElements = document.querySelectorAll('[class*="description"]');
-        console.log('Description-related elements count:', descElements.length);
-      }
-
-      // Debug: Log what we found
-      console.log('[LinkedIn Scraper Debug] Page ready check:', {
-        titleExists: !!titleElement,
-        titleText: titleElement?.textContent?.trim(),
-        companyExists: !!companyElement,
-        companyText: companyElement?.textContent?.trim(),
-        descriptionExists: !!descriptionContainer,
-        descriptionHasContent: !!descriptionContainer?.textContent?.trim()
-      });
 
       // All critical elements must be present AND have content
       return titleElement && titleElement.textContent?.trim() &&
@@ -320,8 +291,10 @@ function scrapeJobData() {
           contactPersonUrl: ''
         };
 
-        // Extract job ID from URL and construct canonical LinkedIn job URL
-        const jobIdMatch = window.location.href.match(/(\d{10})/);
+        // Extract job ID from main page URL and construct canonical LinkedIn job URL
+        // Use mainPageUrl (passed as parameter) instead of window.location.href
+        // because this script may run in an iframe context
+        const jobIdMatch = mainPageUrl.match(/(\d{10})/);
         if (jobIdMatch) {
           data.url = `https://www.linkedin.com/jobs/view/${jobIdMatch[1]}`;
         }
