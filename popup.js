@@ -63,9 +63,11 @@ document.getElementById('saveButton').addEventListener('click', async () => {
 
     // Execute content script to scrape data
     // allFrames: true allows scraping from iframes (needed for SPA navigation)
+    // Pass the main page URL so iframe context can extract job ID
     const results = await chrome.scripting.executeScript({
       target: { tabId: tab.id, allFrames: true },
-      func: scrapeJobData
+      func: scrapeJobData,
+      args: [tab.url]
     });
 
     // When allFrames: true, results contains data from all frames
@@ -124,9 +126,10 @@ document.getElementById('saveButton').addEventListener('click', async () => {
 /**
  * Scrapes job data from a LinkedIn job posting page.
  * This function is injected into the page context via chrome.scripting.executeScript.
+ * @param {string} mainPageUrl - The URL of the main page (needed when running in iframe)
  * @returns {Promise<Object>} Job data including title, company, location, description, etc.
  */
-function scrapeJobData() {
+function scrapeJobData(mainPageUrl) {
   // State variables for building Notion-compatible description blocks
   let currentParagraphBuffer = [];
   let pendingSpace = false; // Flag to manage missing spaces between elements
@@ -288,8 +291,10 @@ function scrapeJobData() {
           contactPersonUrl: ''
         };
 
-        // Extract job ID from URL and construct canonical LinkedIn job URL
-        const jobIdMatch = window.location.href.match(/(\d{10})/);
+        // Extract job ID from main page URL and construct canonical LinkedIn job URL
+        // Use mainPageUrl (passed as parameter) instead of window.location.href
+        // because this script may run in an iframe context
+        const jobIdMatch = mainPageUrl.match(/(\d{10})/);
         if (jobIdMatch) {
           data.url = `https://www.linkedin.com/jobs/view/${jobIdMatch[1]}`;
         }
