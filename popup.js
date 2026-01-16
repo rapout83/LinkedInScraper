@@ -463,9 +463,20 @@ function scrapeJobData(mainPageUrl) {
               if (isContainer) {
                 console.log('[Scraper] Recursing into container to find start');
                 Array.from(node.childNodes).forEach(processNode);
+                // After recursing, check if we found the start element
+                // If so, don't return - continue processing this node normally
+                if (foundStart) {
+                  console.log('[Scraper] Start found during recursion, continuing to process this container');
+                  // Don't return, fall through to process this container's content
+                } else {
+                  return;
+                }
+              } else {
+                return;
               }
+            } else {
+              return;
             }
-            return;
           }
 
           // Stop processing if we hit certain sections that indicate end of job description
