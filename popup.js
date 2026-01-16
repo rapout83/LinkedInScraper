@@ -444,10 +444,32 @@ function scrapeJobData(mainPageUrl) {
 
       // === Extract Salary ===
       const salaryRegex = /([£$€])\s*\d[\d,]*K/i;
-      for (const line of lines) {
-        if (salaryRegex.test(line)) {
-          data.salary = line;
-          break;
+
+      // First try to find salary in buttons with checkmarks (most reliable)
+      for (const svg of checkmarkButtons) {
+        const button = svg.closest('button');
+        if (button) {
+          const buttonText = button.textContent.trim();
+          if (salaryRegex.test(buttonText)) {
+            data.salary = buttonText;
+            break;
+          }
+        }
+      }
+
+      // Fallback: Search only in the first 30 lines (job header area, not entire page)
+      if (!data.salary) {
+        for (let i = 0; i < Math.min(lines.length, 30); i++) {
+          const line = lines[i];
+          if (salaryRegex.test(line)) {
+            // Make sure it's not a full job listing (contains | or multiple parts)
+            // e.g., "Head of Engineering | Remote Netherlands | €140k-€200k + Equity | FinTech"
+            const isProbablyBanner = line.split('|').length > 2;
+            if (!isProbablyBanner) {
+              data.salary = line;
+              break;
+            }
+          }
         }
       }
 
