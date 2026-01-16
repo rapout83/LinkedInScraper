@@ -224,7 +224,10 @@ function scrapeJobData(mainPageUrl) {
    * Finds the job description container using multiple flexible strategies.
    */
   const findDescriptionContainer = () => {
-    // Strategy 1: Look for "About the job" heading and find content after it
+    const main = document.querySelector('main');
+    if (!main) return document.body;
+
+    // Strategy 1: Look for "About the job" heading and find the LARGEST ancestor container
     const aboutElements = Array.from(document.querySelectorAll('*')).filter(el => {
       const text = el.textContent?.trim();
       return (text === 'About the job' || text?.includes('About the job')) &&
@@ -234,35 +237,58 @@ function scrapeJobData(mainPageUrl) {
 
     if (aboutElements.length > 0) {
       let container = aboutElements[0].parentElement;
-      // Traverse up to find a container with substantial content
-      while (container && container !== document.body) {
+      let bestContainer = container;
+
+      // Traverse up to find the largest container that still seems to be job description
+      // Stop at main or when we hit a container that seems too broad
+      while (container && container !== main && container !== document.body) {
         const textLength = container.innerText?.length || 0;
-        const childCount = container.children.length;
-        if (textLength > 200 || childCount > 5) {
-          return container;
+
+        // Keep going up if we find a larger container with substantial content
+        // Job descriptions are typically 1000+ characters
+        if (textLength > 500) {
+          bestContainer = container;
         }
+
+        // Stop if container is unreasonably large (likely includes non-description content)
+        if (textLength > 20000) {
+          break;
+        }
+
         container = container.parentElement;
+      }
+
+      // If the best container we found is very large and has good structure, use it
+      if (bestContainer && bestContainer.innerText?.length > 500) {
+        return bestContainer;
       }
     }
 
-    // Strategy 2: Look for main article or section with multiple paragraphs
+    // Strategy 2: Look for article or section with substantial content
     const article = document.querySelector('main article');
-    if (article && article.querySelectorAll('p, ul, ol').length > 2) {
-      return article;
+    if (article) {
+      const textLength = article.innerText?.length || 0;
+      const elemCount = article.querySelectorAll('p, ul, ol, h1, h2, h3').length;
+      if (textLength > 500 && elemCount > 3) {
+        return article;
+      }
     }
 
-    // Strategy 3: Find section/div within main with most text content
-    const main = document.querySelector('main');
+    // Strategy 3: Find the section/div within main with most comprehensive content
     if (main) {
-      const candidates = Array.from(main.querySelectorAll('section, div'))
-        .filter(el => el.querySelectorAll('p').length > 3);
+      const candidates = Array.from(main.querySelectorAll('section, div, article'))
+        .filter(el => {
+          const textLength = el.innerText?.length || 0;
+          const elemCount = el.querySelectorAll('p, li, h2, h3').length;
+          return textLength > 500 && elemCount > 5;
+        });
 
       if (candidates.length > 0) {
-        // Return the one with most paragraphs
+        // Return the one with most text content (likely the full description)
         return candidates.reduce((best, current) => {
-          const bestCount = best.querySelectorAll('p, li').length;
-          const currentCount = current.querySelectorAll('p, li').length;
-          return currentCount > bestCount ? current : best;
+          const bestLength = best.innerText?.length || 0;
+          const currentLength = current.innerText?.length || 0;
+          return currentLength > bestLength ? current : best;
         });
       }
     }
@@ -357,15 +383,38 @@ function scrapeJobData(mainPageUrl) {
       }
 
       // === Extract Location ===
-      for (let i = 0; i < Math.min(lines.length, 20); i++) {
-        const line = lines[i];
-        // Look for location patterns: "City, State" or "City, Country"
-        if (line.match(/[A-Z][a-z]+,\s*[A-Z]/) ||
+      // First try to find location via ARIA label
+      const locationElem = document.querySelector('[aria-label*="Location,"]');
+      if (locationElem) {
+        const ariaLabel = locationElem.getAttribute('aria-label');
+        data.location = ariaLabel.replace('Location, ', '').replace(/\.$/, '');
+      }
+
+      // Fallback: Look for location patterns in text
+      if (!data.location) {
+        for (let i = 0; i < Math.min(lines.length, 20); i++) {
+          const line = lines[i];
+          // More specific location patterns to avoid matching job titles
+          // Look for: "City, State/Country" but not "Title, Word"
+          const isLocationPattern = (
+            // Has comma followed by 2-letter state code (e.g., "Austin, TX")
+            line.match(/[A-Z][a-z]+,\s*[A-Z]{2}(?:\s|$)/) ||
+            // Contains country names
             line.includes('United Kingdom') ||
             line.includes('United States') ||
-            line.includes('Remote')) {
-          data.location = line.split('·')[0].trim();
-          break;
+            line.includes('Canada') ||
+            line.includes('Australia') ||
+            // Remote work indicators
+            line.match(/\b(Remote|Hybrid|On-site)\b/)
+          );
+
+          // Exclude lines that look like job titles (contain words like Director, Manager, Engineer)
+          const looksLikeJobTitle = line.match(/\b(Director|Manager|Engineer|Lead|Senior|Junior|Analyst|Specialist|Coordinator)\b/i);
+
+          if (isLocationPattern && !looksLikeJobTitle) {
+            data.location = line.split('·')[0].trim();
+            break;
+          }
         }
       }
 
