@@ -221,80 +221,53 @@ function scrapeJobData(mainPageUrl) {
   const extractListItemRichText = (node) => extractInlineRichText(node, true);
 
   /**
-   * Finds the job description container using multiple flexible strategies.
+   * Finds the job description content starting from "About the job" heading.
+   * Returns an object with { container, startElement } to process only relevant content.
    */
   const findDescriptionContainer = () => {
-    const main = document.querySelector('main');
-    if (!main) return document.body;
-
-    // Strategy 1: Look for "About the job" heading and find the LARGEST ancestor container
-    const aboutElements = Array.from(document.querySelectorAll('*')).filter(el => {
+    // Look for "About the job" heading
+    const aboutJobHeadings = Array.from(document.querySelectorAll('h2, h3, h4, div, span, strong')).filter(el => {
       const text = el.textContent?.trim();
-      return (text === 'About the job' || text?.includes('About the job')) &&
-             el.tagName !== 'SCRIPT' &&
-             el.children.length === 0; // Leaf node
+      return text === 'About the job' && el.children.length === 0; // Leaf node
     });
 
-    if (aboutElements.length > 0) {
-      let container = aboutElements[0].parentElement;
-      let bestContainer = container;
+    if (aboutJobHeadings.length > 0) {
+      const heading = aboutJobHeadings[0];
 
-      // Traverse up to find the largest container that still seems to be job description
-      // Stop at main or when we hit a container that seems too broad
-      while (container && container !== main && container !== document.body) {
+      // Find a reasonable parent container (not too far up)
+      let container = heading.parentElement;
+      let depth = 0;
+      const maxDepth = 5;
+
+      while (container && depth < maxDepth && container !== document.body) {
         const textLength = container.innerText?.length || 0;
 
-        // Keep going up if we find a larger container with substantial content
-        // Job descriptions are typically 1000+ characters
-        if (textLength > 500) {
-          bestContainer = container;
-        }
-
-        // Stop if container is unreasonably large (likely includes non-description content)
-        if (textLength > 20000) {
-          break;
+        // Stop if we find a container that seems reasonable for a job description
+        // Not too small (<300 chars) and not too large (>15000 chars)
+        if (textLength > 300 && textLength < 15000) {
+          return { container, startElement: heading };
         }
 
         container = container.parentElement;
+        depth++;
       }
 
-      // If the best container we found is very large and has good structure, use it
-      if (bestContainer && bestContainer.innerText?.length > 500) {
-        return bestContainer;
-      }
+      // If we couldn't find a perfect container, use the heading's parent
+      return { container: heading.parentElement || heading, startElement: heading };
     }
 
-    // Strategy 2: Look for article or section with substantial content
-    const article = document.querySelector('main article');
-    if (article) {
-      const textLength = article.innerText?.length || 0;
-      const elemCount = article.querySelectorAll('p, ul, ol, h1, h2, h3').length;
-      if (textLength > 500 && elemCount > 3) {
-        return article;
-      }
-    }
-
-    // Strategy 3: Find the section/div within main with most comprehensive content
+    // Fallback: try to find any substantial content container
+    const main = document.querySelector('main');
     if (main) {
-      const candidates = Array.from(main.querySelectorAll('section, div, article'))
-        .filter(el => {
-          const textLength = el.innerText?.length || 0;
-          const elemCount = el.querySelectorAll('p, li, h2, h3').length;
-          return textLength > 500 && elemCount > 5;
-        });
-
-      if (candidates.length > 0) {
-        // Return the one with most text content (likely the full description)
-        return candidates.reduce((best, current) => {
-          const bestLength = best.innerText?.length || 0;
-          const currentLength = current.innerText?.length || 0;
-          return currentLength > bestLength ? current : best;
-        });
+      const article = main.querySelector('article');
+      if (article) {
+        return { container: article, startElement: null };
       }
+
+      return { container: main, startElement: null };
     }
 
-    // Strategy 4: Fallback to main
-    return main;
+    return { container: document.body, startElement: null };
   };
 
   return new Promise((resolve, reject) => {
@@ -443,17 +416,52 @@ function scrapeJobData(mainPageUrl) {
       }
 
       // === Extract Description with Rich Text Formatting ===
-      const descriptionContainer = findDescriptionContainer();
+      const { container: descriptionContainer, startElement } = findDescriptionContainer();
       const contentBlocks = [];
 
       if (descriptionContainer) {
         currentParagraphBuffer = [];
         pendingSpace = false;
+        let shouldProcess = !startElement; // If no startElement, process everything
 
         // Recursive function to process DOM nodes
         const processNode = (node) => {
+          // If we have a startElement, skip everything until we reach it
+          if (startElement && !shouldProcess) {
+            if (node === startElement) {
+              shouldProcess = true;
+              return; // Skip the heading itself
+            }
+            // Check if we've passed the startElement in the DOM
+            if (node.compareDocumentPosition && startElement.compareDocumentPosition) {
+              const position = node.compareDocumentPosition(startElement);
+              if (position & Node.DOCUMENT_POSITION_PRECEDING) {
+                // node comes after startElement
+                shouldProcess = true;
+              }
+            }
+            if (!shouldProcess) return;
+          }
           // Skip comment nodes
           if (node.nodeType === 8) return;
+
+          // Stop processing if we hit certain sections that indicate end of job description
+          if (node.nodeType === 1) {
+            const textContent = node.textContent?.trim() || '';
+            const stopPhrases = [
+              'Set alert for similar jobs',
+              'See how you compare',
+              'Exclusive Job Seeker Insights',
+              'About the company',
+              'Looking for talent?',
+              'Questions?',
+              'LinkedIn Corporation'
+            ];
+
+            if (stopPhrases.some(phrase => textContent.startsWith(phrase))) {
+              return; // Stop processing this branch
+            }
+          }
 
           // Handle text nodes
           if (node.nodeType === 3) {
@@ -586,19 +594,35 @@ function scrapeJobData(mainPageUrl) {
 
       // === Extract Contact Person ===
       // Look for "Meet the hiring team" section first
-      const hiringTeamElements = Array.from(document.querySelectorAll('*')).filter(el => {
+      const hiringTeamHeadings = Array.from(document.querySelectorAll('h2, h3, h4, div, span')).filter(el => {
         const text = el.textContent?.trim();
-        return text === 'Meet the hiring team' || text?.includes('Meet the hiring team');
+        return text === 'Meet the hiring team';
       });
 
       let contactLink = null;
-      if (hiringTeamElements.length > 0) {
-        // Find the first /in/ link after the "Meet the hiring team" heading
-        let container = hiringTeamElements[0].parentElement;
-        while (container && container !== document.body) {
-          contactLink = container.querySelector('a[href*="/in/"]');
+      if (hiringTeamHeadings.length > 0) {
+        const heading = hiringTeamHeadings[0];
+
+        // Strategy 1: Look in the next sibling elements after the heading
+        let nextElement = heading.nextElementSibling;
+        let attempts = 0;
+        while (nextElement && attempts < 10) {
+          contactLink = nextElement.querySelector('a[href*="/in/"]');
           if (contactLink) break;
-          container = container.parentElement;
+          nextElement = nextElement.nextElementSibling;
+          attempts++;
+        }
+
+        // Strategy 2: Look in parent's children after the heading
+        if (!contactLink && heading.parentElement) {
+          const parent = heading.parentElement;
+          const children = Array.from(parent.children);
+          const headingIndex = children.indexOf(heading);
+
+          for (let i = headingIndex + 1; i < children.length; i++) {
+            contactLink = children[i].querySelector('a[href*="/in/"]');
+            if (contactLink) break;
+          }
         }
       }
 
@@ -606,9 +630,26 @@ function scrapeJobData(mainPageUrl) {
       if (!contactLink) {
         const allProfileLinks = Array.from(document.querySelectorAll('a[href*="/in/"]'));
         // Filter out navigation links (typically in header/nav)
+        // Also filter out links from "People you can reach out to" section
         contactLink = allProfileLinks.find(link => {
           const nav = link.closest('nav, header');
-          return !nav; // Not in navigation
+          if (nav) return false;
+
+          // Check if this link is under "People you can reach out to" section
+          let elem = link;
+          while (elem && elem !== document.body) {
+            if (elem.textContent?.includes('People you can reach out to')) {
+              // Only exclude if this is a section heading, not if it's the whole page
+              const sectionHeadings = Array.from(document.querySelectorAll('h2, h3, h4')).filter(h =>
+                h.textContent?.trim() === 'People you can reach out to'
+              );
+              if (sectionHeadings.some(h => h.contains(elem) || elem.contains(h))) {
+                return false;
+              }
+            }
+            elem = elem.parentElement;
+          }
+          return true;
         });
       }
 
