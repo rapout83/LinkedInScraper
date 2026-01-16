@@ -392,8 +392,9 @@ function scrapeJobData(mainPageUrl) {
             line.includes('United States') ||
             line.includes('Canada') ||
             line.includes('Australia') ||
-            // Remote work indicators
-            line.match(/\b(Remote|Hybrid|On-site)\b/)
+            line.includes('Netherlands') ||
+            line.includes('Germany') ||
+            line.includes('France')
           );
 
           // Exclude lines that look like job titles (contain words like Director, Manager, Engineer)
@@ -407,11 +408,37 @@ function scrapeJobData(mainPageUrl) {
       }
 
       // === Extract Work Type (Remote/Hybrid/On-site) ===
+      // First try to find work type from buttons with checkmarks
       const workTypeKeywords = ['Remote', 'Hybrid', 'On-site'];
-      for (const keyword of workTypeKeywords) {
-        if (mainText.includes(keyword)) {
-          data.workType = keyword;
-          break;
+      const checkmarkButtons = document.querySelectorAll('button svg[id="check-small"]');
+
+      for (const svg of checkmarkButtons) {
+        const button = svg.closest('button');
+        if (button) {
+          const buttonText = button.textContent.trim();
+          for (const keyword of workTypeKeywords) {
+            if (buttonText === keyword) {
+              data.workType = keyword;
+              break;
+            }
+          }
+          if (data.workType) break;
+        }
+      }
+
+      // Fallback: Search for work type keywords in specific contexts (not entire page)
+      if (!data.workType) {
+        for (const keyword of workTypeKeywords) {
+          // Look for the keyword as a standalone word in buttons or spans
+          const elements = document.querySelectorAll('button, span');
+          for (const el of elements) {
+            const text = el.textContent.trim();
+            if (text === keyword || text === keyword + ' ') {
+              data.workType = keyword;
+              break;
+            }
+          }
+          if (data.workType) break;
         }
       }
 
