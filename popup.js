@@ -458,8 +458,10 @@ function scrapeJobData(mainPageUrl) {
           // If we haven't found the start yet, only recurse into containers to look for it
           if (!foundStart) {
             if (node.nodeType === 1) {
+              console.log('[Scraper] Looking for start element, checking:', node.tagName);
               const isContainer = ['DIV', 'SECTION', 'ARTICLE', 'HEADER', 'FOOTER', 'MAIN', 'ASIDE', 'NAV', 'SPAN'].includes(node.tagName);
               if (isContainer) {
+                console.log('[Scraper] Recursing into container to find start');
                 Array.from(node.childNodes).forEach(processNode);
               }
             }
@@ -509,6 +511,7 @@ function scrapeJobData(mainPageUrl) {
             }
 
             if (node.tagName === 'BR') {
+              console.log('[Scraper] Found BR tag, checking for double BR');
               // Check if next sibling is also BR (or whitespace then BR) = paragraph break
               // Single BR = just a line break within content (treat as space)
               let nextNode = node.nextSibling;
@@ -540,6 +543,7 @@ function scrapeJobData(mainPageUrl) {
             const isContainer = ['DIV', 'SECTION', 'ARTICLE', 'HEADER', 'FOOTER', 'MAIN', 'ASIDE', 'NAV', 'SPAN'].includes(node.tagName);
 
             if (isContainer) {
+              console.log('[Scraper] Processing container:', node.tagName, 'with', node.childNodes.length, 'children, foundStart=', foundStart);
               // Don't finalize paragraphs here - let BR tags and block elements handle it
               // Just recursively process children of container elements
               Array.from(node.childNodes).forEach(processNode);
