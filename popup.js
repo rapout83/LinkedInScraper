@@ -422,28 +422,29 @@ function scrapeJobData(mainPageUrl) {
       if (descriptionContainer) {
         currentParagraphBuffer = [];
         pendingSpace = false;
-        let shouldProcess = !startElement; // If no startElement, process everything
+        let foundStart = !startElement; // If no startElement, start processing immediately
 
         // Recursive function to process DOM nodes
         const processNode = (node) => {
-          // If we have a startElement, skip everything until we reach it
-          if (startElement && !shouldProcess) {
-            if (node === startElement) {
-              shouldProcess = true;
-              return; // Skip the heading itself
-            }
-            // Check if we've passed the startElement in the DOM
-            if (node.compareDocumentPosition && startElement.compareDocumentPosition) {
-              const position = node.compareDocumentPosition(startElement);
-              if (position & Node.DOCUMENT_POSITION_PRECEDING) {
-                // node comes after startElement
-                shouldProcess = true;
-              }
-            }
-            if (!shouldProcess) return;
+          // Check if this is the start element
+          if (startElement && !foundStart && node === startElement) {
+            foundStart = true;
+            return; // Skip the heading itself
           }
+
           // Skip comment nodes
           if (node.nodeType === 8) return;
+
+          // If we haven't found the start yet, only recurse into containers to look for it
+          if (!foundStart) {
+            if (node.nodeType === 1) {
+              const isContainer = ['DIV', 'SECTION', 'ARTICLE', 'HEADER', 'FOOTER', 'MAIN', 'ASIDE', 'NAV'].includes(node.tagName);
+              if (isContainer) {
+                Array.from(node.childNodes).forEach(processNode);
+              }
+            }
+            return;
+          }
 
           // Stop processing if we hit certain sections that indicate end of job description
           if (node.nodeType === 1) {
@@ -497,8 +498,12 @@ function scrapeJobData(mainPageUrl) {
             const isContainer = ['DIV', 'SECTION', 'ARTICLE', 'HEADER', 'FOOTER', 'MAIN', 'ASIDE', 'NAV'].includes(node.tagName);
 
             if (isContainer) {
+              // Finalize any pending paragraph before entering container
+              finalizeParagraph(contentBlocks);
               // Recursively process children of container elements
               Array.from(node.childNodes).forEach(processNode);
+              // Finalize any pending paragraph after exiting container
+              finalizeParagraph(contentBlocks);
               return;
             }
 
@@ -593,64 +598,80 @@ function scrapeJobData(mainPageUrl) {
       }];
 
       // === Extract Contact Person ===
-      // Look for "Meet the hiring team" section first
-      const hiringTeamHeadings = Array.from(document.querySelectorAll('h2, h3, h4, div, span')).filter(el => {
-        const text = el.textContent?.trim();
-        return text === 'Meet the hiring team';
+      // Look for "Meet the hiring team" section
+      let contactLink = null;
+
+      // Find any element containing "Meet the hiring team" text
+      const allElements = Array.from(document.querySelectorAll('*'));
+      const hiringTeamElement = allElements.find(el => {
+        const text = el.textContent?.trim() || '';
+        const ownText = el.innerText?.trim() || '';
+        // Check if this element itself (not children) contains the text
+        return (text === 'Meet the hiring team' || ownText === 'Meet the hiring team') &&
+               el.children.length === 0;
       });
 
-      let contactLink = null;
-      if (hiringTeamHeadings.length > 0) {
-        const heading = hiringTeamHeadings[0];
-
-        // Strategy 1: Look in the next sibling elements after the heading
-        let nextElement = heading.nextElementSibling;
-        let attempts = 0;
-        while (nextElement && attempts < 10) {
-          contactLink = nextElement.querySelector('a[href*="/in/"]');
-          if (contactLink) break;
-          nextElement = nextElement.nextElementSibling;
-          attempts++;
-        }
-
-        // Strategy 2: Look in parent's children after the heading
-        if (!contactLink && heading.parentElement) {
-          const parent = heading.parentElement;
-          const children = Array.from(parent.children);
-          const headingIndex = children.indexOf(heading);
-
-          for (let i = headingIndex + 1; i < children.length; i++) {
-            contactLink = children[i].querySelector('a[href*="/in/"]');
-            if (contactLink) break;
+      if (hiringTeamElement) {
+        // Walk forward through the DOM to find the first profile link after this element
+        let walker = document.createTreeWalker(
+          document.body,
+          NodeFilter.SHOW_ELEMENT,
+          {
+            acceptNode: function(node) {
+              // Skip nodes before hiringTeamElement
+              if (node === hiringTeamElement) {
+                return NodeFilter.FILTER_SKIP;
+              }
+              const position = node.compareDocumentPosition(hiringTeamElement);
+              if (position & Node.DOCUMENT_POSITION_FOLLOWING ||
+                  position & Node.DOCUMENT_POSITION_CONTAINED_BY) {
+                // This node is before hiringTeamElement
+                return NodeFilter.FILTER_SKIP;
+              }
+              // This node is after hiringTeamElement
+              if (node.tagName === 'A' && node.href && node.href.includes('/in/')) {
+                return NodeFilter.FILTER_ACCEPT;
+              }
+              return NodeFilter.FILTER_SKIP;
+            }
           }
-        }
+        );
+
+        contactLink = walker.nextNode();
       }
 
-      // Fallback: Look for any profile link, but prefer ones that are not in navigation
+      // Fallback: Look for profile links, excluding navigation and "People you can reach out to"
       if (!contactLink) {
         const allProfileLinks = Array.from(document.querySelectorAll('a[href*="/in/"]'));
-        // Filter out navigation links (typically in header/nav)
-        // Also filter out links from "People you can reach out to" section
-        contactLink = allProfileLinks.find(link => {
-          const nav = link.closest('nav, header');
-          if (nav) return false;
 
-          // Check if this link is under "People you can reach out to" section
-          let elem = link;
+        for (const link of allProfileLinks) {
+          // Skip navigation links
+          if (link.closest('nav, header')) continue;
+
+          // Check if under "People you can reach out to"
+          let isInReachOut = false;
+          let elem = link.parentElement;
           while (elem && elem !== document.body) {
-            if (elem.textContent?.includes('People you can reach out to')) {
-              // Only exclude if this is a section heading, not if it's the whole page
-              const sectionHeadings = Array.from(document.querySelectorAll('h2, h3, h4')).filter(h =>
-                h.textContent?.trim() === 'People you can reach out to'
-              );
-              if (sectionHeadings.some(h => h.contains(elem) || elem.contains(h))) {
-                return false;
+            const text = elem.textContent || '';
+            if (text.includes('People you can reach out to')) {
+              // Check if there's a heading with this exact text as an ancestor
+              const headings = elem.querySelectorAll('h1, h2, h3, h4, h5, h6');
+              for (const heading of headings) {
+                if (heading.textContent?.trim() === 'People you can reach out to') {
+                  isInReachOut = true;
+                  break;
+                }
               }
+              if (isInReachOut) break;
             }
             elem = elem.parentElement;
           }
-          return true;
-        });
+
+          if (!isInReachOut) {
+            contactLink = link;
+            break;
+          }
+        }
       }
 
       if (contactLink) {
