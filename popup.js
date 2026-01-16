@@ -557,6 +557,13 @@ function scrapeJobData(mainPageUrl) {
               }
             }
 
+            // Skip heading elements (they're structural, not content)
+            const isHeading = ['H1', 'H2', 'H3', 'H4', 'H5', 'H6'].includes(node.tagName);
+            if (isHeading) {
+              console.log('[Scraper] Skipping heading element:', node.tagName);
+              return;
+            }
+
             // Check if this is a container element that should be recursively traversed
             // SPAN can act as a container when it has block-level children (BR, UL, etc.)
             const isContainer = ['DIV', 'SECTION', 'ARTICLE', 'HEADER', 'FOOTER', 'MAIN', 'ASIDE', 'NAV', 'SPAN'].includes(node.tagName);
@@ -621,10 +628,18 @@ function scrapeJobData(mainPageUrl) {
               while (nextSibling && nextSibling.nodeType === 3 && nextSibling.nodeValue.trim().length === 0) {
                 nextSibling = nextSibling.nextSibling;
               }
-              // If next is BR or double BR, skip them (they were handled by the list)
+              // Mark the first BR after list as processed
               if (nextSibling && nextSibling.nodeType === 1 && nextSibling.tagName === 'BR') {
-                // Mark this BR as processed by setting a flag
                 nextSibling._listBRProcessed = true;
+
+                // Also check for a second BR (double BR pattern) and mark it too
+                let nextNext = nextSibling.nextSibling;
+                while (nextNext && nextNext.nodeType === 3 && nextNext.nodeValue.trim().length === 0) {
+                  nextNext = nextNext.nextSibling;
+                }
+                if (nextNext && nextNext.nodeType === 1 && nextNext.tagName === 'BR') {
+                  nextNext._listBRProcessed = true;
+                }
               }
 
               return;
@@ -658,9 +673,29 @@ function scrapeJobData(mainPageUrl) {
 
             if (isInlineFormat) {
               console.log('[Scraper] Processing inline element:', node.tagName);
-              // Extract rich text with formatting
+
+              // Extract text content and manually apply formatting
+              const isBold = node.tagName === 'STRONG' || node.tagName === 'B';
+              const isItalic = node.tagName === 'EM' || node.tagName === 'I';
+              const isLink = node.tagName === 'A' && node.href;
+
+              // Recursively extract content from children
               const nodeContent = extractInlineRichText(node);
               console.log('[Scraper] Inline content:', nodeContent.length, 'items, first:', nodeContent[0]?.text?.content?.substring(0, 30));
+
+              // Apply formatting annotations to all items
+              nodeContent.forEach(item => {
+                if (item.type !== 'BREAK' && item.text) {
+                  item.annotations = item.annotations || {};
+                  if (isBold) item.annotations.bold = true;
+                  if (isItalic) item.annotations.italic = true;
+                  if (isLink) {
+                    item.text.link = { url: node.href };
+                  }
+                }
+              });
+
+              console.log('[Scraper] After annotations:', nodeContent[0]);
 
               // Check for internal line breaks
               const breakIndex = nodeContent.findIndex(item => item.type === 'BREAK');
