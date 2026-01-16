@@ -419,6 +419,11 @@ function scrapeJobData(mainPageUrl) {
       const { container: descriptionContainer, startElement } = findDescriptionContainer();
       const contentBlocks = [];
 
+      // Debug logging
+      console.log('[Scraper] Description container:', descriptionContainer?.tagName, descriptionContainer?.className);
+      console.log('[Scraper] Start element:', startElement?.tagName, startElement?.textContent?.substring(0, 50));
+      console.log('[Scraper] Container text length:', descriptionContainer?.innerText?.length);
+
       if (descriptionContainer) {
         currentParagraphBuffer = [];
         pendingSpace = false;
@@ -500,6 +505,7 @@ function scrapeJobData(mainPageUrl) {
 
               // If next node is also a BR, this is a paragraph break
               if (nextNode && nextNode.nodeType === 1 && nextNode.tagName === 'BR') {
+                console.log('[Scraper] Double BR detected - finalizing paragraph');
                 finalizeParagraph(contentBlocks);
                 pendingSpace = false;
                 // Skip the next BR as well since we're treating this as a double-BR paragraph break
@@ -534,6 +540,7 @@ function scrapeJobData(mainPageUrl) {
 
             // Handle list blocks
             if (isList) {
+              console.log('[Scraper] Found list:', node.tagName, 'with', node.children.length, 'items');
               finalizeParagraph(contentBlocks);
 
               const listType = node.tagName === 'UL' ? 'bulleted_list_item' : 'numbered_list_item';
@@ -605,6 +612,9 @@ function scrapeJobData(mainPageUrl) {
 
         // Finalize any remaining content
         finalizeParagraph(contentBlocks);
+
+        console.log('[Scraper] Total blocks created:', contentBlocks.length);
+        console.log('[Scraper] Block types:', contentBlocks.map(b => b.type).join(', '));
       }
 
       data.descriptionBlocks = contentBlocks.length > 0 ? contentBlocks : [{
