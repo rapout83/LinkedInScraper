@@ -64,6 +64,8 @@ document.getElementById('saveButton').addEventListener('click', async () => {
     // Execute content script to scrape data
     // allFrames: true allows scraping from iframes (needed for SPA navigation)
     // Pass the main page URL so iframe context can extract job ID
+    console.log('[LinkedIn Scraper] About to execute script on tab:', tab.id);
+
     const results = await chrome.scripting.executeScript({
       target: { tabId: tab.id, allFrames: true },
       func: scrapeJobData,
@@ -73,11 +75,24 @@ document.getElementById('saveButton').addEventListener('click', async () => {
     // When allFrames: true, results contains data from all frames
     // Find the frame that has valid job data (title exists)
     console.log('[LinkedIn Scraper] Results from all frames:', results.length);
+    console.log('[LinkedIn Scraper] All results:', results.map((r, i) => ({
+      frameId: i,
+      hasResult: !!r.result,
+      hasTitle: !!r.result?.title,
+      title: r.result?.title?.substring(0, 50),
+      blockCount: r.result?.descriptionBlocks?.length
+    })));
 
     const jobData = results.find(r => r.result && r.result.title)?.result;
 
     // Debug logging
-    console.log('[LinkedIn Scraper] Scraped data:', jobData);
+    console.log('[LinkedIn Scraper] Selected job data:', {
+      title: jobData?.title,
+      company: jobData?.company,
+      location: jobData?.location,
+      descriptionBlockCount: jobData?.descriptionBlocks?.length,
+      blockTypes: jobData?.descriptionBlocks?.map(b => b.type).slice(0, 20)
+    });
 
     if (!jobData) {
       throw new Error("Scraping failed: No data returned from any frame (page may not be ready)");
