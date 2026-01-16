@@ -450,8 +450,8 @@ function scrapeJobData(mainPageUrl) {
         currentParagraphBuffer = [];
         pendingSpace = false;
 
-        // Full DOM traversal with rich text extraction
-        Array.from(descriptionContainer.childNodes).forEach(node => {
+        // Recursive function to process DOM nodes
+        const processNode = (node) => {
           // Skip comment nodes
           if (node.nodeType === 8) return;
 
@@ -485,24 +485,29 @@ function scrapeJobData(mainPageUrl) {
               return;
             }
 
-            // Check for list containers
-            const listContainer = node.tagName === 'UL' || node.tagName === 'OL' ? node : node.querySelector('ul, ol');
+            // Check if this is a container element that should be recursively traversed
+            const isContainer = ['DIV', 'SECTION', 'ARTICLE', 'HEADER', 'FOOTER', 'MAIN', 'ASIDE', 'NAV'].includes(node.tagName);
 
-            // Check for paragraph elements
-            let paragraphElement = null;
-            if (node.tagName === 'P') {
-              paragraphElement = node;
-            } else if (node.tagName === 'SPAN' && node.children.length === 1 && node.firstElementChild.tagName === 'P') {
-              paragraphElement = node.firstElementChild;
+            if (isContainer) {
+              // Recursively process children of container elements
+              Array.from(node.childNodes).forEach(processNode);
+              return;
             }
 
+            // Check if this is a list element
+            const isList = node.tagName === 'UL' || node.tagName === 'OL';
+
+            // Check if this is a paragraph element
+            const isParagraph = node.tagName === 'P' ||
+              (node.tagName === 'SPAN' && node.children.length === 1 && node.firstElementChild.tagName === 'P');
+
             // Handle list blocks
-            if (listContainer) {
+            if (isList) {
               finalizeParagraph(contentBlocks);
 
-              const listType = listContainer.tagName === 'UL' ? 'bulleted_list_item' : 'numbered_list_item';
+              const listType = node.tagName === 'UL' ? 'bulleted_list_item' : 'numbered_list_item';
 
-              Array.from(listContainer.children).forEach(listItemNode => {
+              Array.from(node.children).forEach(listItemNode => {
                 if (listItemNode.tagName === 'LI') {
                   const rawListItemContent = extractListItemRichText(listItemNode);
                   const listItemContent = cleanRichTextArray(rawListItemContent);
@@ -525,9 +530,10 @@ function scrapeJobData(mainPageUrl) {
             }
 
             // Handle paragraph blocks
-            if (paragraphElement) {
+            if (isParagraph) {
               finalizeParagraph(contentBlocks);
 
+              const paragraphElement = node.tagName === 'P' ? node : node.firstElementChild;
               const rawParagraphContent = extractInlineRichText(paragraphElement);
               const paragraphContent = cleanRichTextArray(rawParagraphContent);
 
@@ -561,7 +567,10 @@ function scrapeJobData(mainPageUrl) {
 
             currentParagraphBuffer.push(...nodeContent);
           }
-        });
+        };
+
+        // Start processing from the description container
+        Array.from(descriptionContainer.childNodes).forEach(processNode);
 
         // Finalize any remaining content
         finalizeParagraph(contentBlocks);
@@ -576,7 +585,33 @@ function scrapeJobData(mainPageUrl) {
       }];
 
       // === Extract Contact Person ===
-      const contactLink = document.querySelector('a[href*="/in/"]');
+      // Look for "Meet the hiring team" section first
+      const hiringTeamElements = Array.from(document.querySelectorAll('*')).filter(el => {
+        const text = el.textContent?.trim();
+        return text === 'Meet the hiring team' || text?.includes('Meet the hiring team');
+      });
+
+      let contactLink = null;
+      if (hiringTeamElements.length > 0) {
+        // Find the first /in/ link after the "Meet the hiring team" heading
+        let container = hiringTeamElements[0].parentElement;
+        while (container && container !== document.body) {
+          contactLink = container.querySelector('a[href*="/in/"]');
+          if (contactLink) break;
+          container = container.parentElement;
+        }
+      }
+
+      // Fallback: Look for any profile link, but prefer ones that are not in navigation
+      if (!contactLink) {
+        const allProfileLinks = Array.from(document.querySelectorAll('a[href*="/in/"]'));
+        // Filter out navigation links (typically in header/nav)
+        contactLink = allProfileLinks.find(link => {
+          const nav = link.closest('nav, header');
+          return !nav; // Not in navigation
+        });
+      }
+
       if (contactLink) {
         data.contactPerson = contactLink.innerText.trim();
         data.contactPersonUrl = contactLink.href;
