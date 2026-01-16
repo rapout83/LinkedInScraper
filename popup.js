@@ -443,12 +443,14 @@ function scrapeJobData(mainPageUrl) {
         currentParagraphBuffer = [];
         pendingSpace = false;
         let foundStart = !startElement; // If no startElement, start processing immediately
+        let skipFirstText = false; // Flag to skip "About the job" if it appears as text
 
         // Recursive function to process DOM nodes
         const processNode = (node) => {
           // Check if this is the start element
           if (startElement && !foundStart && node === startElement) {
             foundStart = true;
+            skipFirstText = true; // Skip any immediate text that might duplicate the heading
             return; // Skip the heading itself
           }
 
@@ -522,6 +524,11 @@ function scrapeJobData(mainPageUrl) {
             }
 
             if (node.tagName === 'BR') {
+              // Skip if this BR was already processed as part of list spacing
+              if (node._listBRProcessed) {
+                return;
+              }
+
               console.log('[Scraper] Found BR tag, checking for double BR');
               // Check if next sibling is also BR (or whitespace then BR) = paragraph break
               // Single BR = just a line break within content (treat as space)
@@ -537,7 +544,8 @@ function scrapeJobData(mainPageUrl) {
                 console.log('[Scraper] Double BR detected - finalizing paragraph');
                 finalizeParagraph(contentBlocks);
                 pendingSpace = false;
-                // Skip the next BR as well since we're treating this as a double-BR paragraph break
+                // Mark both BRs as processed
+                nextNode._listBRProcessed = true;
                 return;
               } else {
                 // Single BR - treat as a space or soft line break
@@ -607,6 +615,18 @@ function scrapeJobData(mainPageUrl) {
 
               currentParagraphBuffer = [];
               pendingSpace = false;
+
+              // Skip the BR tags immediately after UL (they're just spacing)
+              let nextSibling = node.nextSibling;
+              while (nextSibling && nextSibling.nodeType === 3 && nextSibling.nodeValue.trim().length === 0) {
+                nextSibling = nextSibling.nextSibling;
+              }
+              // If next is BR or double BR, skip them (they were handled by the list)
+              if (nextSibling && nextSibling.nodeType === 1 && nextSibling.tagName === 'BR') {
+                // Mark this BR as processed by setting a flag
+                nextSibling._listBRProcessed = true;
+              }
+
               return;
             }
 
@@ -633,19 +653,32 @@ function scrapeJobData(mainPageUrl) {
               return;
             }
 
-            // Handle inline elements (bold, italic, links, etc.)
-            const nodeContent = extractInlineRichText(node);
+            // Check if this is an inline formatting element (STRONG, EM, A, etc.)
+            const isInlineFormat = ['STRONG', 'B', 'EM', 'I', 'A', 'CODE'].includes(node.tagName);
 
-            // Check for internal line breaks
-            const breakIndex = nodeContent.findIndex(item => item.type === 'BREAK');
-            if (breakIndex !== -1) {
-              currentParagraphBuffer.push(...nodeContent.slice(0, breakIndex));
-              finalizeParagraph(contentBlocks);
-              currentParagraphBuffer.push(...nodeContent.slice(breakIndex + 1));
-              pendingSpace = false;
+            if (isInlineFormat) {
+              console.log('[Scraper] Processing inline element:', node.tagName);
+              // Extract rich text with formatting
+              const nodeContent = extractInlineRichText(node);
+              console.log('[Scraper] Inline content:', nodeContent.length, 'items, first:', nodeContent[0]?.text?.content?.substring(0, 30));
+
+              // Check for internal line breaks
+              const breakIndex = nodeContent.findIndex(item => item.type === 'BREAK');
+              if (breakIndex !== -1) {
+                currentParagraphBuffer.push(...nodeContent.slice(0, breakIndex));
+                finalizeParagraph(contentBlocks);
+                currentParagraphBuffer.push(...nodeContent.slice(breakIndex + 1));
+                pendingSpace = false;
+                return;
+              }
+
+              currentParagraphBuffer.push(...nodeContent);
               return;
             }
 
+            // For any other element type, treat as inline and extract text
+            console.log('[Scraper] Unknown element type:', node.tagName, '- extracting as inline');
+            const nodeContent = extractInlineRichText(node);
             currentParagraphBuffer.push(...nodeContent);
           }
         };
