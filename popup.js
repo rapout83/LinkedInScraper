@@ -438,7 +438,7 @@ function scrapeJobData(mainPageUrl) {
           // If we haven't found the start yet, only recurse into containers to look for it
           if (!foundStart) {
             if (node.nodeType === 1) {
-              const isContainer = ['DIV', 'SECTION', 'ARTICLE', 'HEADER', 'FOOTER', 'MAIN', 'ASIDE', 'NAV'].includes(node.tagName);
+              const isContainer = ['DIV', 'SECTION', 'ARTICLE', 'HEADER', 'FOOTER', 'MAIN', 'ASIDE', 'NAV', 'SPAN'].includes(node.tagName);
               if (isContainer) {
                 Array.from(node.childNodes).forEach(processNode);
               }
@@ -489,21 +489,39 @@ function scrapeJobData(mainPageUrl) {
             }
 
             if (node.tagName === 'BR') {
-              finalizeParagraph(contentBlocks);
-              pendingSpace = false;
-              return;
+              // Check if next sibling is also BR (or whitespace then BR) = paragraph break
+              // Single BR = just a line break within content (treat as space)
+              let nextNode = node.nextSibling;
+
+              // Skip whitespace text nodes
+              while (nextNode && nextNode.nodeType === 3 && nextNode.nodeValue.trim().length === 0) {
+                nextNode = nextNode.nextSibling;
+              }
+
+              // If next node is also a BR, this is a paragraph break
+              if (nextNode && nextNode.nodeType === 1 && nextNode.tagName === 'BR') {
+                finalizeParagraph(contentBlocks);
+                pendingSpace = false;
+                // Skip the next BR as well since we're treating this as a double-BR paragraph break
+                return;
+              } else {
+                // Single BR - treat as a space or soft line break
+                if (currentParagraphBuffer.length > 0) {
+                  currentParagraphBuffer.push({ text: { content: ' ' } });
+                }
+                pendingSpace = false;
+                return;
+              }
             }
 
             // Check if this is a container element that should be recursively traversed
-            const isContainer = ['DIV', 'SECTION', 'ARTICLE', 'HEADER', 'FOOTER', 'MAIN', 'ASIDE', 'NAV'].includes(node.tagName);
+            // SPAN can act as a container when it has block-level children (BR, UL, etc.)
+            const isContainer = ['DIV', 'SECTION', 'ARTICLE', 'HEADER', 'FOOTER', 'MAIN', 'ASIDE', 'NAV', 'SPAN'].includes(node.tagName);
 
             if (isContainer) {
-              // Finalize any pending paragraph before entering container
-              finalizeParagraph(contentBlocks);
-              // Recursively process children of container elements
+              // Don't finalize paragraphs here - let BR tags and block elements handle it
+              // Just recursively process children of container elements
               Array.from(node.childNodes).forEach(processNode);
-              // Finalize any pending paragraph after exiting container
-              finalizeParagraph(contentBlocks);
               return;
             }
 
