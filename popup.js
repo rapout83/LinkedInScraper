@@ -380,25 +380,45 @@ function scrapeJobData(mainPageUrl) {
 
       // Fallback: Look for location patterns in text
       if (!data.location) {
+        // Common countries and regions
+        const locationKeywords = [
+          // Countries
+          'United Kingdom', 'United States', 'Canada', 'Australia', 'Netherlands',
+          'Germany', 'France', 'Spain', 'Italy', 'Portugal', 'Belgium', 'Switzerland',
+          'Austria', 'Sweden', 'Norway', 'Denmark', 'Finland', 'Ireland', 'Poland',
+          'Czech Republic', 'Greece', 'Hungary', 'Romania', 'Bulgaria', 'Croatia',
+          'India', 'China', 'Japan', 'Singapore', 'Malaysia', 'Thailand', 'Vietnam',
+          'Indonesia', 'Philippines', 'South Korea', 'Hong Kong', 'Taiwan',
+          'Brazil', 'Mexico', 'Argentina', 'Chile', 'Colombia', 'Peru',
+          'South Africa', 'Nigeria', 'Kenya', 'Egypt', 'Morocco',
+          'Israel', 'United Arab Emirates', 'Saudi Arabia', 'Turkey',
+          'New Zealand', 'Pakistan', 'Bangladesh',
+          // Regions
+          'EMEA', 'APAC', 'LATAM', 'MENA', 'EU', 'UK'
+        ];
+
         for (let i = 0; i < Math.min(lines.length, 20); i++) {
           const line = lines[i];
-          // More specific location patterns to avoid matching job titles
-          // Look for: "City, State/Country" but not "Title, Word"
-          const isLocationPattern = (
-            // Has comma followed by 2-letter state code (e.g., "Austin, TX")
-            line.match(/[A-Z][a-z]+,\s*[A-Z]{2}(?:\s|$)/) ||
-            // Contains country names
-            line.includes('United Kingdom') ||
-            line.includes('United States') ||
-            line.includes('Canada') ||
-            line.includes('Australia') ||
-            line.includes('Netherlands') ||
-            line.includes('Germany') ||
-            line.includes('France')
-          );
 
-          // Exclude lines that look like job titles (contain words like Director, Manager, Engineer)
-          const looksLikeJobTitle = line.match(/\b(Director|Manager|Engineer|Lead|Senior|Junior|Analyst|Specialist|Coordinator)\b/i);
+          // Skip empty lines and very short lines
+          if (line.length < 3) continue;
+
+          // Pattern 1: Has comma followed by 2-letter state/country code (e.g., "Austin, TX")
+          const hasStateCode = line.match(/[A-Z][a-z]+,\s*[A-Z]{2}(?:\s|$|·)/);
+
+          // Pattern 2: Contains known country/region names
+          const hasKnownLocation = locationKeywords.some(keyword => line.includes(keyword));
+
+          // Pattern 3: Looks like "City, Region, Country" format (multiple commas)
+          const hasMultipleCommas = (line.match(/,/g) || []).length >= 2;
+
+          // Pattern 4: Line appears before "·" separator (typical LinkedIn format)
+          const appearsBeforeSeparator = line.includes('·');
+
+          const isLocationPattern = hasStateCode || hasKnownLocation || (hasMultipleCommas && appearsBeforeSeparator);
+
+          // Exclude lines that look like job titles
+          const looksLikeJobTitle = line.match(/\b(Director|Manager|Engineer|Lead|Senior|Junior|Analyst|Specialist|Coordinator|Developer|Designer|Architect)\b/i);
 
           if (isLocationPattern && !looksLikeJobTitle) {
             data.location = line.split('·')[0].trim();
