@@ -629,11 +629,11 @@ function scrapeJobData(mainPageUrl) {
             const isList = node.tagName === 'UL' || node.tagName === 'OL';
 
             // Check if this is a paragraph element
-            // But if P contains block-level children (UL, OL), treat it as a container instead
+            // But if P contains block-level children (UL, OL, LI), treat it as a container instead
             let isParagraph = false;
             if (node.tagName === 'P') {
               // Check if P contains block-level children
-              const hasBlockChildren = node.querySelector('ul, ol, br');
+              const hasBlockChildren = node.querySelector('ul, ol, li, br');
               if (hasBlockChildren) {
                 // Treat as container, not paragraph
                 console.log('[Scraper] P element contains block children, treating as container');
@@ -652,20 +652,36 @@ function scrapeJobData(mainPageUrl) {
 
               const listType = node.tagName === 'UL' ? 'bulleted_list_item' : 'numbered_list_item';
 
-              Array.from(node.children).forEach(listItemNode => {
-                if (listItemNode.tagName === 'LI') {
-                  const rawListItemContent = extractListItemRichText(listItemNode);
-                  const listItemContent = cleanRichTextArray(rawListItemContent);
+              // Find all LI elements (both direct children and those wrapped in P tags)
+              const listItems = [];
 
-                  if (listItemContent.length > 0) {
-                    contentBlocks.push({
-                      object: 'block',
-                      type: listType,
-                      [listType]: {
-                        rich_text: listItemContent
-                      }
-                    });
+              Array.from(node.children).forEach(child => {
+                if (child.tagName === 'LI') {
+                  // Direct LI child: <ul><li>...</li></ul>
+                  listItems.push(child);
+                } else if (child.tagName === 'P') {
+                  // P-wrapped LI: <ul><p><li>...</li></p></ul>
+                  const nestedLI = child.querySelector('li');
+                  if (nestedLI) {
+                    listItems.push(nestedLI);
                   }
+                }
+              });
+
+              console.log('[Scraper] Found', listItems.length, 'list items (including P-wrapped)');
+
+              listItems.forEach(listItemNode => {
+                const rawListItemContent = extractListItemRichText(listItemNode);
+                const listItemContent = cleanRichTextArray(rawListItemContent);
+
+                if (listItemContent.length > 0) {
+                  contentBlocks.push({
+                    object: 'block',
+                    type: listType,
+                    [listType]: {
+                      rich_text: listItemContent
+                    }
+                  });
                 }
               });
 
