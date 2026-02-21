@@ -384,8 +384,8 @@ function scrapeJobData(mainPageUrl) {
         // Time pattern: handles hours/days/weeks/months ago, plus "reposted"
         const timePattern = /(\d+\s*(hour|day|week|month)s?\s*ago|reposted.*\d+\s*(hour|day|week|month)s?\s*ago)/i;
 
-        // Applicant pattern: handles "N applicants", "people clicked apply", "over N applicants"
-        const applicantPattern = /(applicants?|people\s+clicked\s+apply|clicked\s+apply|over\s+\d+)/i;
+        // Applicant pattern: handles all variations (N applicants, over N applicants, N people clicked apply, over N people clicked apply)
+        const applicantPattern = /(over\s+\d+\s+(applicants?|people\s+clicked\s+apply)|applicants?|people\s+clicked\s+apply|clicked\s+apply)/i;
 
         const paragraphs = Array.from(document.querySelectorAll('p'));
         for (const p of paragraphs) {
