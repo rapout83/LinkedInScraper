@@ -381,15 +381,25 @@ function scrapeJobData(mainPageUrl) {
       // Fallback: Detect the structural LinkedIn pattern "Location · X days ago · N applicants"
       // This is content-based, not CSS-based, so it works regardless of country or region name
       if (!data.location) {
-        const timePattern = /\b\d+\s*(day|week|month|hour)s?\s*ago\b|reposted/i;
-        const applicantPattern = /\bapplicant|\bclicked apply/i;
+        // Time pattern: handles hours/days/weeks/months ago, plus "reposted"
+        const timePattern = /(\d+\s*(hour|day|week|month)s?\s*ago|reposted.*\d+\s*(hour|day|week|month)s?\s*ago)/i;
+
+        // Applicant pattern: handles "N applicants", "people clicked apply", "over N applicants"
+        const applicantPattern = /(applicants?|people\s+clicked\s+apply|clicked\s+apply|over\s+\d+)/i;
 
         const paragraphs = Array.from(document.querySelectorAll('p'));
         for (const p of paragraphs) {
           const text = p.textContent;
+
+          // Must contain "·" separator, time info, and applicant info
           if (text.includes('·') && timePattern.test(text) && applicantPattern.test(text)) {
-            data.location = text.split('·')[0].trim();
-            break;
+            const location = text.split('·')[0].trim();
+
+            // Skip if empty or looks like a job title
+            if (location.length > 0 && !location.match(/\b(Director|Manager|Engineer|Lead|Senior|Junior|Analyst|Specialist|Coordinator|Developer|Designer|Architect|Head of)\b/i)) {
+              data.location = location;
+              break;
+            }
           }
         }
       }
