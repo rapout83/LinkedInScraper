@@ -626,11 +626,11 @@ function scrapeJobData(mainPageUrl) {
             const isList = node.tagName === 'UL' || node.tagName === 'OL';
 
             // Check if this is a paragraph element
-            // But if P contains block-level children (UL, OL, LI), treat it as a container instead
+            // But if P contains block-level children (UL, OL, LI, BR, P), treat it as a container instead
             let isParagraph = false;
             if (node.tagName === 'P') {
-              // Check if P contains block-level children
-              const hasBlockChildren = node.querySelector('ul, ol, li, br');
+              // Check if P contains block-level children (including nested <p> tags, e.g. LinkedIn's expandable-text-box pattern)
+              const hasBlockChildren = node.querySelector('ul, ol, li, br, p');
               if (hasBlockChildren) {
                 // Treat as container, not paragraph
                 console.log('[Scraper] P element contains block children, treating as container');
