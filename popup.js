@@ -378,51 +378,28 @@ function scrapeJobData(mainPageUrl) {
         data.location = ariaLabel.replace('Location, ', '').replace(/\.$/, '');
       }
 
-      // Fallback: Look for location patterns in text
+      // Fallback: Detect the structural LinkedIn pattern "Location · X days ago · N applicants"
+      // This is content-based, not CSS-based, so it works regardless of country or region name
       if (!data.location) {
-        // Common countries and regions
-        const locationKeywords = [
-          // Countries
-          'United Kingdom', 'United States', 'Canada', 'Australia', 'Netherlands',
-          'Germany', 'France', 'Spain', 'Italy', 'Portugal', 'Belgium', 'Switzerland',
-          'Austria', 'Sweden', 'Norway', 'Denmark', 'Finland', 'Ireland', 'Poland',
-          'Czech Republic', 'Greece', 'Hungary', 'Romania', 'Bulgaria', 'Croatia',
-          'India', 'China', 'Japan', 'Singapore', 'Malaysia', 'Thailand', 'Vietnam',
-          'Indonesia', 'Philippines', 'South Korea', 'Hong Kong', 'Taiwan',
-          'Brazil', 'Mexico', 'Argentina', 'Chile', 'Colombia', 'Peru',
-          'South Africa', 'Nigeria', 'Kenya', 'Egypt', 'Morocco',
-          'Israel', 'United Arab Emirates', 'Saudi Arabia', 'Turkey',
-          'New Zealand', 'Pakistan', 'Bangladesh',
-          // Regions
-          'EMEA', 'APAC', 'LATAM', 'MENA', 'EU', 'UK'
-        ];
+        // Time pattern: handles hours/days/weeks/months ago, plus "reposted"
+        const timePattern = /(\d+\s*(hour|day|week|month)s?\s*ago|reposted.*\d+\s*(hour|day|week|month)s?\s*ago)/i;
 
-        for (let i = 0; i < Math.min(lines.length, 20); i++) {
-          const line = lines[i];
+        // Applicant pattern: handles all variations (N applicants, over N applicants, N people clicked apply, over N people clicked apply)
+        const applicantPattern = /(over\s+\d+\s+(applicants?|people\s+clicked\s+apply)|applicants?|people\s+clicked\s+apply|clicked\s+apply)/i;
 
-          // Skip empty lines and very short lines
-          if (line.length < 3) continue;
+        const paragraphs = Array.from(document.querySelectorAll('p'));
+        for (const p of paragraphs) {
+          const text = p.textContent;
 
-          // Pattern 1: Has comma followed by 2-letter state/country code (e.g., "Austin, TX")
-          const hasStateCode = line.match(/[A-Z][a-z]+,\s*[A-Z]{2}(?:\s|$|·)/);
+          // Must contain "·" separator, time info, and applicant info
+          if (text.includes('·') && timePattern.test(text) && applicantPattern.test(text)) {
+            const location = text.split('·')[0].trim();
 
-          // Pattern 2: Contains known country/region names
-          const hasKnownLocation = locationKeywords.some(keyword => line.includes(keyword));
-
-          // Pattern 3: Looks like "City, Region, Country" format (multiple commas)
-          const hasMultipleCommas = (line.match(/,/g) || []).length >= 2;
-
-          // Pattern 4: Line appears before "·" separator (typical LinkedIn format)
-          const appearsBeforeSeparator = line.includes('·');
-
-          const isLocationPattern = hasStateCode || hasKnownLocation || (hasMultipleCommas && appearsBeforeSeparator);
-
-          // Exclude lines that look like job titles
-          const looksLikeJobTitle = line.match(/\b(Director|Manager|Engineer|Lead|Senior|Junior|Analyst|Specialist|Coordinator|Developer|Designer|Architect)\b/i);
-
-          if (isLocationPattern && !looksLikeJobTitle) {
-            data.location = line.split('·')[0].trim();
-            break;
+            // Skip if empty or looks like a job title
+            if (location.length > 0 && !location.match(/\b(Director|Manager|Engineer|Lead|Senior|Junior|Analyst|Specialist|Coordinator|Developer|Designer|Architect|Head of)\b/i)) {
+              data.location = location;
+              break;
+            }
           }
         }
       }

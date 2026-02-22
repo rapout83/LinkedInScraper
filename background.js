@@ -17,6 +17,37 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 // ============================================================================
 
 /**
+ * Checks if a job with the same Company + Position already exists in the Notion database.
+ * @returns {Promise<boolean>} True if a duplicate exists
+ */
+async function checkDuplicate(company, position, databaseId, notionToken) {
+  try {
+    const response = await fetch(`https://api.notion.com/v1/databases/${databaseId}/query`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${notionToken}`,
+        'Content-Type': 'application/json',
+        'Notion-Version': '2022-06-28'
+      },
+      body: JSON.stringify({
+        filter: {
+          and: [
+            { property: "Company", title: { equals: company || "" } },
+            { property: "Position", rich_text: { equals: position || "" } }
+          ]
+        }
+      })
+    });
+
+    if (!response.ok) return false;
+    const data = await response.json();
+    return data.results && data.results.length > 0;
+  } catch {
+    return false; // Never block saving due to duplicate check failure
+  }
+}
+
+/**
  * Saves job data to a Notion database.
  * Handles the 100-block limit by batching content across multiple API calls.
  * @param {Object} jobData - The scraped job data
@@ -61,6 +92,9 @@ async function saveJobToNotion(jobData, config) {
   const initialBlocks = descriptionBlocks.slice(0, maxInitialDescriptionBlocks);
   const remainingBlocks = descriptionBlocks.slice(maxInitialDescriptionBlocks);
 
+  // Check for duplicate before creating the page
+  const isDuplicate = await checkDuplicate(jobData.company, jobData.title, databaseId, notionToken);
+
   // Build Notion page with properties and initial content
   const notionData = {
     parent: { database_id: databaseId },
@@ -96,6 +130,9 @@ async function saveJobToNotion(jobData, config) {
         rich_text: [{
           text: { content: jobData.salary || "" }
         }]
+      },
+      "Duplicate?": {
+        checkbox: isDuplicate
       }
     },
     children: [headingBlock, ...initialBlocks]
