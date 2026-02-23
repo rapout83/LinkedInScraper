@@ -3,34 +3,8 @@
 // Filters out dismissed jobs, blocked companies, and applied jobs
 // ============================================================================
 
-// Only run in frames that have LinkedIn job listings
-// This check ensures we don't run in wrong iframes/contexts
-function hasLinkedInJobListings() {
-  const jobListSelectors = [
-    'li.jobs-search-results__list-item',
-    'li.scaffold-layout__list-item',
-    'div.job-card-container',
-    'div.jobs-search-results__list-item',
-    '[data-job-id]',
-    'ul.scaffold-layout__list-container'
-  ];
+console.log('[LinkedIn Filter] Content script loaded');
 
-  return jobListSelectors.some(selector => document.querySelector(selector) !== null);
-}
-
-// Check if we're in the right context before initializing
-// Wait a moment for the DOM to potentially load
-setTimeout(() => {
-  if (!hasLinkedInJobListings()) {
-    // Not in a job listings page/frame, silently exit
-    return;
-  }
-
-  console.log('[LinkedIn Filter] Content script loaded on listings page');
-  initializeContentScript();
-}, 100);
-
-function initializeContentScript() {
 // Global state
 let dismissedJobs = {};
 let blockedCompanies = [];
@@ -44,9 +18,31 @@ let settings = {
 // ============================================================================
 
 /**
+ * Checks if the page has LinkedIn job listings
+ */
+function isPageReady() {
+  const jobListSelectors = [
+    'li.jobs-search-results__list-item',
+    'li.scaffold-layout__list-item',
+    'div.job-card-container',
+    'div.jobs-search-results__list-item',
+    '[data-job-id]',
+    'ul.scaffold-layout__list-container'
+  ];
+
+  return jobListSelectors.some(selector => document.querySelector(selector) !== null);
+}
+
+/**
  * Initialize the filter by loading settings from storage and setting up observers
  */
 async function init() {
+  // Check if we're in the right context (has job listings)
+  if (!isPageReady()) {
+    console.log('[LinkedIn Filter] No job listings found, skipping initialization');
+    return;
+  }
+
   console.log('[LinkedIn Filter] Initializing...');
 
   // Load settings from storage
@@ -525,5 +521,3 @@ if (document.readyState === 'loading') {
 } else {
   init();
 }
-
-} // End of initializeContentScript()
