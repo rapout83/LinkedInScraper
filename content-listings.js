@@ -46,6 +46,21 @@ async function init() {
     }
   });
 
+  // Listen for SPA navigation (LinkedIn doesn't reload page when navigating)
+  let lastUrl = location.href;
+  new MutationObserver(() => {
+    const currentUrl = location.href;
+    if (currentUrl !== lastUrl) {
+      console.log('[LinkedIn Filter] URL changed, re-initializing');
+      lastUrl = currentUrl;
+      // Wait for new content to load
+      setTimeout(() => {
+        processAllJobCards();
+        setupDismissButtonListeners();
+      }, 1000);
+    }
+  }).observe(document, { subtree: true, childList: true });
+
   console.log('[LinkedIn Filter] Initialization complete');
 }
 
@@ -299,14 +314,18 @@ function extractJobData(card) {
 
   // Check for "We won't show you" or "We won't recommend" message
   const cardText = card.innerText || card.textContent || '';
+  const cardTextLower = cardText.toLowerCase();
   const wontShowPatterns = [
-    "We won't show you this job again",
+    "we won't show you",
+    "we won't recommend",
     "won't show you",
-    "We won't recommend this job",
-    "We won't recommend",
-    "won't recommend"
+    "won't recommend",
+    "we wont show you",  // Without apostrophe
+    "we wont recommend",
+    "dismissed",
+    "hidden"
   ];
-  data.hasWontRecommendMessage = wontShowPatterns.some(pattern => cardText.includes(pattern));
+  data.hasWontRecommendMessage = wontShowPatterns.some(pattern => cardTextLower.includes(pattern));
 
   return data;
 }
