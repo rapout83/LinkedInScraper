@@ -3,7 +3,7 @@
 // Filters out dismissed jobs, blocked companies, and applied jobs
 // ============================================================================
 
-console.log('[LinkedIn Filter] Content script loaded on listings page');
+console.log('[LinkedIn Filter] Content script loaded');
 
 // Global state
 let dismissedJobs = {};
@@ -18,6 +18,22 @@ let settings = {
 // ============================================================================
 
 /**
+ * Checks if the page has LinkedIn job listings
+ */
+function isPageReady() {
+  const jobListSelectors = [
+    'li.jobs-search-results__list-item',
+    'li.scaffold-layout__list-item',
+    'div.job-card-container',
+    'div.jobs-search-results__list-item',
+    '[data-job-id]',
+    'ul.scaffold-layout__list-container'
+  ];
+
+  return jobListSelectors.some(selector => document.querySelector(selector) !== null);
+}
+
+/**
  * Initialize the filter by loading settings from storage and setting up observers
  */
 async function init() {
@@ -28,6 +44,9 @@ async function init() {
 
   // Process existing job cards
   processAllJobCards();
+
+  // Set up X button listeners for existing cards
+  setupDismissButtonListeners();
 
   // Set up MutationObserver to watch for new job cards (infinite scroll)
   setupObserver();
@@ -42,6 +61,19 @@ async function init() {
       });
     }
   });
+
+  // Listen for SPA navigation (LinkedIn doesn't reload page when navigating)
+  let lastUrl = location.href;
+  new MutationObserver(() => {
+    const currentUrl = location.href;
+    if (currentUrl !== lastUrl) {
+      console.log('[LinkedIn Filter] URL changed, re-initializing');
+      lastUrl = currentUrl;
+      // Re-process cards after navigation
+      processAllJobCards();
+      setupDismissButtonListeners();
+    }
+  }).observe(document, { subtree: true, childList: true });
 
   console.log('[LinkedIn Filter] Initialization complete');
 }
@@ -174,6 +206,88 @@ function processJobCard(card) {
   }
 }
 
+// ============================================================================
+// DISMISS BUTTON (X BUTTON) INTERCEPTION
+// ============================================================================
+
+/**
+ * Set up click listeners on all X (dismiss) buttons in job cards
+ */
+function setupDismissButtonListeners() {
+  const jobCards = findJobCards();
+
+  jobCards.forEach(card => {
+    setupDismissButtonForCard(card);
+  });
+}
+
+/**
+ * Set up dismiss button listener for a single card
+ */
+function setupDismissButtonForCard(card) {
+  // Skip if already set up
+  if (card.dataset.dismissListenerAdded === 'true') {
+    return;
+  }
+
+  // Find the dismiss/X button - LinkedIn uses various selectors
+  const dismissButtonSelectors = [
+    'button[aria-label*="Dismiss"]',
+    'button[aria-label*="dismiss"]',
+    'button.dismiss',
+    'button.job-card-container__action',
+    '[data-test-job-card-dismiss]',
+    'button[data-control-name*="dismiss"]'
+  ];
+
+  let dismissButton = null;
+  for (const selector of dismissButtonSelectors) {
+    dismissButton = card.querySelector(selector);
+    if (dismissButton) break;
+  }
+
+  // Also try to find X icon buttons without specific dismiss labels
+  if (!dismissButton) {
+    const buttons = card.querySelectorAll('button');
+    dismissButton = Array.from(buttons).find(btn => {
+      const ariaLabel = btn.getAttribute('aria-label') || '';
+      return ariaLabel.toLowerCase().includes('dismiss');
+    });
+  }
+
+  if (!dismissButton) {
+    // No dismiss button found, skip
+    return;
+  }
+
+  // Add click listener
+  dismissButton.addEventListener('click', async (e) => {
+    console.log('[LinkedIn Filter] Dismiss button clicked');
+
+    // Extract job data
+    const jobData = extractJobData(card);
+
+    if (jobData.id) {
+      // Add to dismissed list
+      await addToDismissedList(jobData);
+      console.log('[LinkedIn Filter] Dismissed job:', jobData.id, jobData.title);
+
+      // Reset processed flag so we can re-process and hide the card
+      card.dataset.linkedinFilterProcessed = 'false';
+
+      // Re-process the card to apply the "dismissed" filter and hide it
+      processJobCard(card);
+    }
+  }, true); // Use capture phase to run before LinkedIn's handler
+
+  // Mark as set up
+  card.dataset.dismissListenerAdded = 'true';
+}
+
+// ============================================================================
+// JOB DATA EXTRACTION
+// ============================================================================
+
 /**
  * Extract job data from a job card element
  */
@@ -210,22 +324,26 @@ function extractJobData(card) {
     data.company = data.company.split('·')[0].trim();
   }
 
-  // Check if Applied
-  const appliedIndicators = [
-    card.querySelector('.job-card-container__footer-item--highlighted'),
-    card.querySelector('[data-test-job-card-footer-applied]'),
-    Array.from(card.querySelectorAll('*')).find(el =>
-      el.textContent?.trim() === 'Applied' ||
-      el.innerText?.trim() === 'Applied'
-    )
-  ];
-  data.isApplied = appliedIndicators.some(indicator => indicator !== null && indicator !== undefined);
-
-  // Check for "We won't recommend" message
+  // Get card text for multiple checks
   const cardText = card.innerText || card.textContent || '';
-  data.hasWontRecommendMessage = cardText.includes('We won\'t recommend this job anymore') ||
-                                  cardText.includes('We won't recommend this job') ||
-                                  cardText.includes('won\'t recommend');
+  const cardTextLower = cardText.toLowerCase();
+
+  // Check if Applied - look for "Applied" text anywhere in the card
+  data.isApplied = cardTextLower.includes('applied') &&
+                   !cardTextLower.includes('easy apply'); // Exclude "Easy Apply" false positives
+
+  // Check for "We won't show you" or "We won't recommend" message
+  const wontShowPatterns = [
+    "we won't show you",
+    "we won't recommend",
+    "won't show you",
+    "won't recommend",
+    "we wont show you",  // Without apostrophe
+    "we wont recommend",
+    "dismissed",
+    "hidden"
+  ];
+  data.hasWontRecommendMessage = wontShowPatterns.some(pattern => cardTextLower.includes(pattern));
 
   return data;
 }
@@ -298,12 +416,16 @@ function setupObserver() {
         if (node.nodeType === 1) { // Element node
           if (isJobCard(node)) {
             processJobCard(node);
+            setupDismissButtonForCard(node);
             hasNewCards = true;
           } else {
             // Check if the node contains job cards
             const cards = node.querySelectorAll ? findJobCardsIn(node) : [];
             if (cards.length > 0) {
-              cards.forEach(card => processJobCard(card));
+              cards.forEach(card => {
+                processJobCard(card);
+                setupDismissButtonForCard(card);
+              });
               hasNewCards = true;
             }
           }
@@ -387,9 +509,42 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 // START
 // ============================================================================
 
+/**
+ * Attempts initialization with retry logic
+ * Following the pattern from scrapeJobData in popup.js
+ */
+function attemptInit() {
+  // Try immediately if page is ready
+  if (isPageReady()) {
+    init();
+    return;
+  }
+
+  // If not ready, set up observer to retry when DOM changes
+  console.log('[LinkedIn Filter] Waiting for job listings to load...');
+  const MAX_WAIT_TIME_MS = 10000;
+  let observer = null;
+
+  const timeout = setTimeout(() => {
+    if (observer) observer.disconnect();
+    console.log('[LinkedIn Filter] Timeout: No job listings found');
+  }, MAX_WAIT_TIME_MS);
+
+  observer = new MutationObserver(() => {
+    if (isPageReady()) {
+      clearTimeout(timeout);
+      observer.disconnect();
+      console.log('[LinkedIn Filter] Job listings detected');
+      init();
+    }
+  });
+
+  observer.observe(document.body, { childList: true, subtree: true });
+}
+
 // Initialize when DOM is ready
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init);
+  document.addEventListener('DOMContentLoaded', attemptInit);
 } else {
-  init();
+  attemptInit();
 }

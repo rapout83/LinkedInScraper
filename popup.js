@@ -19,14 +19,27 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Check if we're on a LinkedIn job page
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  const isJobPage = tab.url.includes('linkedin.com/jobs/view/');
-  const isListingsPage = tab.url.includes('linkedin.com/jobs/');
+  const isJobViewPage = tab.url && (
+    tab.url.includes('linkedin.com/jobs/view/') ||
+    tab.url.match(/linkedin\.com\/jobs\/[^\/]+\/\d+/)
+  );
+  const isListingsPage = tab.url && tab.url.includes('linkedin.com/jobs/');
 
-  if (!isJobPage) {
-    showStatus('Please navigate to a LinkedIn job posting page', 'info');
-    document.getElementById('saveButton').disabled = true;
-    document.getElementById('dismissButton').disabled = true;
-    document.getElementById('blockCompanyButton').disabled = true;
+  // Enable/disable buttons based on page type
+  const saveButton = document.getElementById('saveButton');
+  const dismissButton = document.getElementById('dismissButton');
+  const blockCompanyButton = document.getElementById('blockCompanyButton');
+
+  if (!isJobViewPage) {
+    showStatus('Navigate to a job posting to use Save/Dismiss/Block buttons', 'info');
+    if (saveButton) saveButton.disabled = true;
+    if (dismissButton) dismissButton.disabled = true;
+    if (blockCompanyButton) blockCompanyButton.disabled = true;
+  } else {
+    // Enable buttons on job view pages
+    if (saveButton) saveButton.disabled = false;
+    if (dismissButton) dismissButton.disabled = false;
+    if (blockCompanyButton) blockCompanyButton.disabled = false;
   }
 
   // Load and display filters
@@ -73,51 +86,20 @@ async function loadFiltersUI() {
   document.getElementById('hideAppliedToggle').checked = settings.hideAppliedJobs;
   document.getElementById('hideWontRecommendToggle').checked = settings.hideWontRecommend;
 
-  // Display dismissed jobs
-  displayDismissedJobs(dismissedJobs);
+  // Display dismissed jobs count
+  updateDismissedCount(dismissedJobs);
 
   // Display blocked companies
   displayBlockedCompanies(blockedCompanies);
 }
 
 /**
- * Display dismissed jobs list
+ * Update dismissed jobs count
  */
-function displayDismissedJobs(dismissedJobs) {
-  const container = document.getElementById('dismissedJobsList');
+function updateDismissedCount(dismissedJobs) {
   const countElement = document.getElementById('dismissedCount');
-  const jobs = Object.values(dismissedJobs);
-
-  countElement.textContent = jobs.length;
-
-  if (jobs.length === 0) {
-    container.innerHTML = '<div class="empty-state">No dismissed jobs yet</div>';
-    return;
-  }
-
-  // Sort by dismissed date (newest first)
-  jobs.sort((a, b) => b.dismissedAt - a.dismissedAt);
-
-  container.innerHTML = jobs.map(job => {
-    const date = new Date(job.dismissedAt).toLocaleDateString();
-    return `
-      <div class="list-item" data-job-id="${job.id}">
-        <div class="list-item-content">
-          <div class="list-item-title">${escapeHtml(job.title || 'Unknown Title')}</div>
-          <div class="list-item-subtitle">${escapeHtml(job.company || 'Unknown Company')} • ${date}</div>
-        </div>
-        <button class="undo-dismiss-button">Undo</button>
-      </div>
-    `;
-  }).join('');
-
-  // Add event listeners to undo buttons
-  container.querySelectorAll('.undo-dismiss-button').forEach(button => {
-    button.addEventListener('click', async (e) => {
-      const jobId = e.target.closest('.list-item').dataset.jobId;
-      await undoDismissJob(jobId);
-    });
-  });
+  const count = Object.keys(dismissedJobs).length;
+  countElement.textContent = count;
 }
 
 /**
@@ -198,10 +180,41 @@ async function removeBlockedCompany(companyName) {
 async function dismissCurrentJob() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
-  // Extract job ID from URL
-  const jobIdMatch = tab.url.match(/\/jobs\/view\/(\d+)/);
+  // Extract job ID from URL (works in both full page and iframe modes)
+  let jobIdMatch = tab.url.match(/\/jobs\/view\/(\d+)/);
   if (!jobIdMatch) {
-    showStatus('Could not extract job ID from URL', 'error');
+    // Try alternative pattern: /jobs/collections/.../urn:li:fsd_jobPosting:3123456789
+    jobIdMatch = tab.url.match(/\/jobs\/[^\/]+\/(\d{10})/);
+  }
+  if (!jobIdMatch) {
+    // Try to get from page content
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: tab.id, allFrames: true },
+        func: () => {
+          // Look for job ID in any link on the page
+          const links = document.querySelectorAll('a[href*="/jobs/view/"]');
+          for (const link of links) {
+            const match = link.href.match(/\/jobs\/view\/(\d+)/);
+            if (match) return match[1];
+          }
+          // Look in URL bar or current iframe
+          const match = window.location.href.match(/\/jobs\/view\/(\d+)/);
+          return match ? match[1] : null;
+        }
+      });
+
+      const extractedId = results.find(r => r.result)?.result;
+      if (extractedId) {
+        jobIdMatch = [null, extractedId];
+      }
+    } catch (e) {
+      console.error('Failed to extract job ID from page:', e);
+    }
+  }
+
+  if (!jobIdMatch) {
+    showStatus('Could not extract job ID. Please open the full job posting.', 'error');
     return;
   }
 
@@ -265,19 +278,6 @@ async function blockCurrentCompany() {
   }
 }
 
-/**
- * Undo dismissal of a job
- */
-async function undoDismissJob(jobId) {
-  const data = await chrome.storage.local.get(['dismissedJobs']);
-  const dismissedJobs = data.dismissedJobs || {};
-
-  delete dismissedJobs[jobId];
-  await chrome.storage.local.set({ dismissedJobs });
-
-  // Refresh UI
-  await loadFiltersUI();
-}
 
 /**
  * Clear all dismissed jobs
