@@ -3,27 +3,7 @@
 // Filters out dismissed jobs, blocked companies, and applied jobs
 // ============================================================================
 
-// Wrap in IIFE to allow early return
-(function() {
-  // Check if we're in the right context
-  // Either we're in the top window, or we're in LinkedIn's main iframe
-  if (window !== window.top) {
-    // We're in an iframe - check if it's LinkedIn's main content iframe
-    const isLinkedInIframe = window.frameElement &&
-      (window.frameElement.getAttribute('data-testid') === 'interop-iframe' ||
-       window.frameElement.src?.includes('/preload/'));
-
-    if (!isLinkedInIframe) {
-      console.log('[LinkedIn Filter] Skipping - not in main LinkedIn iframe');
-      // Don't run in non-LinkedIn iframes
-      return;
-    }
-    console.log('[LinkedIn Filter] Running in LinkedIn iframe');
-  } else {
-    console.log('[LinkedIn Filter] Running in top window');
-  }
-
-  console.log('[LinkedIn Filter] Content script loaded on listings page');
+console.log('[LinkedIn Filter] Content script loaded on listings page');
 
 // Global state
 let dismissedJobs = {};
@@ -519,5 +499,3 @@ if (document.readyState === 'loading') {
 } else {
   init();
 }
-
-})(); // End of IIFE
