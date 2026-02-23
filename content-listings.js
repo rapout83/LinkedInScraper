@@ -307,14 +307,15 @@ function extractJobData(card) {
     data.company = data.company.split('·')[0].trim();
   }
 
+  // Get card text for multiple checks
+  const cardText = card.innerText || card.textContent || '';
+  const cardTextLower = cardText.toLowerCase();
+
   // Check if Applied - look for "Applied" text anywhere in the card
-  const cardTextLower = (card.innerText || card.textContent || '').toLowerCase();
   data.isApplied = cardTextLower.includes('applied') &&
                    !cardTextLower.includes('easy apply'); // Exclude "Easy Apply" false positives
 
   // Check for "We won't show you" or "We won't recommend" message
-  const cardText = card.innerText || card.textContent || '';
-  const cardTextLower = cardText.toLowerCase();
   const wontShowPatterns = [
     "we won't show you",
     "we won't recommend",
