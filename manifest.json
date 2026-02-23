@@ -22,15 +22,14 @@
   },
   "background": {
     "service_worker": "background.js"
-  },  
-  /*
+  },
   "content_scripts": [
     {
       "matches": ["https://www.linkedin.com/jobs/*"],
-      "js": ["content.js"]
+      "js": ["content-listings.js"],
+      "run_at": "document_end"
     }
   ],
-  */
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
