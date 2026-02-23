@@ -4,22 +4,71 @@
   <meta charset="UTF-8">
   <style>
     body {
-      width: 320px;
-      padding: 16px;
+      width: 400px;
+      padding: 0;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       margin: 0;
     }
-    
+
     h2 {
       margin: 0 0 16px 0;
       font-size: 18px;
       color: #0a66c2;
     }
-    
+
+    h3 {
+      margin: 0 0 12px 0;
+      font-size: 14px;
+      font-weight: 600;
+      color: #333;
+    }
+
+    /* Tab Navigation */
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid #ddd;
+      background-color: #f5f5f5;
+    }
+
+    .tab-button {
+      flex: 1;
+      padding: 12px;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      font-size: 13px;
+      font-weight: 500;
+      color: #666;
+      cursor: pointer;
+      margin: 0;
+      border-radius: 0;
+    }
+
+    .tab-button:hover {
+      background-color: #e8e8e8;
+      color: #333;
+    }
+
+    .tab-button.active {
+      color: #0a66c2;
+      border-bottom-color: #0a66c2;
+      background-color: white;
+    }
+
+    .tab-content {
+      display: none;
+      padding: 16px;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    /* Form Elements */
     .config-section {
       margin-bottom: 20px;
     }
-    
+
     label {
       display: block;
       margin-bottom: 6px;
@@ -27,8 +76,9 @@
       font-weight: 500;
       color: #333;
     }
-    
-    input {
+
+    input[type="text"],
+    input[type="password"] {
       width: 100%;
       padding: 8px;
       border: 1px solid #ddd;
@@ -36,12 +86,12 @@
       font-size: 13px;
       box-sizing: border-box;
     }
-    
+
     input:focus {
       outline: none;
       border-color: #0a66c2;
     }
-    
+
     button {
       width: 100%;
       padding: 10px;
@@ -54,24 +104,40 @@
       cursor: pointer;
       margin-top: 8px;
     }
-    
+
     button:hover {
       background-color: #004182;
     }
-    
+
     button:disabled {
       background-color: #ccc;
       cursor: not-allowed;
     }
-    
+
+    button.secondary {
+      background-color: #666;
+    }
+
+    button.secondary:hover {
+      background-color: #444;
+    }
+
+    button.danger {
+      background-color: #c41e3a;
+    }
+
+    button.danger:hover {
+      background-color: #9a1829;
+    }
+
     #saveButton {
       background-color: #057642;
     }
-    
+
     #saveButton:hover {
       background-color: #045a33;
     }
-    
+
     .status {
       margin-top: 12px;
       padding: 10px;
@@ -79,58 +145,263 @@
       font-size: 13px;
       display: none;
     }
-    
+
     .status.success {
       background-color: #d4edda;
       color: #155724;
       display: block;
     }
-    
+
     .status.error {
       background-color: #f8d7da;
       color: #721c24;
       display: block;
     }
-    
+
     .status.info {
       background-color: #d1ecf1;
       color: #0c5460;
       display: block;
     }
-    
+
     .divider {
       height: 1px;
       background-color: #e0e0e0;
       margin: 20px 0;
     }
-    
+
     .info-text {
       font-size: 12px;
       color: #666;
       margin-top: 8px;
     }
+
+    /* Filter-specific styles */
+    .filter-section {
+      margin-bottom: 24px;
+    }
+
+    .add-company-form {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .add-company-form input {
+      flex: 1;
+      margin: 0;
+    }
+
+    .add-company-form button {
+      width: auto;
+      margin: 0;
+      padding: 8px 16px;
+    }
+
+    .list-container {
+      max-height: 200px;
+      overflow-y: auto;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background-color: #fafafa;
+    }
+
+    .list-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px;
+      border-bottom: 1px solid #eee;
+      font-size: 13px;
+    }
+
+    .list-item:last-child {
+      border-bottom: none;
+    }
+
+    .list-item-content {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .list-item-title {
+      font-weight: 500;
+      color: #333;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .list-item-subtitle {
+      font-size: 11px;
+      color: #666;
+      margin-top: 2px;
+    }
+
+    .list-item button {
+      width: auto;
+      padding: 6px 12px;
+      margin: 0 0 0 8px;
+      font-size: 12px;
+    }
+
+    .empty-state {
+      padding: 24px;
+      text-align: center;
+      color: #999;
+      font-size: 13px;
+    }
+
+    .toggle-group {
+      margin-bottom: 12px;
+    }
+
+    .toggle-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 0;
+      border-bottom: 1px solid #eee;
+    }
+
+    .toggle-item:last-child {
+      border-bottom: none;
+    }
+
+    .toggle-label {
+      font-size: 13px;
+      color: #333;
+      font-weight: 500;
+    }
+
+    .toggle-switch {
+      position: relative;
+      display: inline-block;
+      width: 48px;
+      height: 24px;
+    }
+
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #ccc;
+      transition: 0.3s;
+      border-radius: 24px;
+    }
+
+    .toggle-slider:before {
+      position: absolute;
+      content: "";
+      height: 18px;
+      width: 18px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: 0.3s;
+      border-radius: 50%;
+    }
+
+    input:checked + .toggle-slider {
+      background-color: #0a66c2;
+    }
+
+    input:checked + .toggle-slider:before {
+      transform: translateX(24px);
+    }
   </style>
 </head>
 <body>
-  <h2>LinkedIn to Notion</h2>
-  
-  <div class="config-section">
-    <label for="notionToken">Notion Integration Token:</label>
-    <input type="password" id="notionToken" placeholder="secret_...">
-    
-    <label for="databaseId" style="margin-top: 12px;">Notion Database ID:</label>
-    <input type="text" id="databaseId" placeholder="abc123def456...">
-    
-    <button id="saveConfig">Save Configuration</button>
-    <p class="info-text">You only need to set this once. Your credentials will be stored securely.</p>
+  <!-- Tab Navigation -->
+  <div class="tabs">
+    <button class="tab-button active" data-tab="save">Save Job</button>
+    <button class="tab-button" data-tab="filters">Filters</button>
   </div>
-  
-  <div class="divider"></div>
-  
-  <button id="saveButton">Save Job to Notion</button>
-  
-  <div id="status" class="status"></div>
-  
+
+  <!-- Save Job Tab -->
+  <div id="save-tab" class="tab-content active">
+    <h2>LinkedIn to Notion</h2>
+
+    <div class="config-section">
+      <label for="notionToken">Notion Integration Token:</label>
+      <input type="password" id="notionToken" placeholder="secret_...">
+
+      <label for="databaseId" style="margin-top: 12px;">Notion Database ID:</label>
+      <input type="text" id="databaseId" placeholder="abc123def456...">
+
+      <button id="saveConfig">Save Configuration</button>
+      <p class="info-text">You only need to set this once. Your credentials will be stored securely.</p>
+    </div>
+
+    <div class="divider"></div>
+
+    <button id="saveButton">Save Job to Notion</button>
+    <button id="dismissButton" class="secondary">Dismiss This Job</button>
+    <button id="blockCompanyButton" class="danger">Block This Company</button>
+
+    <div id="status" class="status"></div>
+  </div>
+
+  <!-- Filters Tab -->
+  <div id="filters-tab" class="tab-content">
+    <h2>Job Filters</h2>
+
+    <!-- Settings Section -->
+    <div class="filter-section">
+      <h3>Settings</h3>
+      <div class="toggle-group">
+        <div class="toggle-item">
+          <span class="toggle-label">Auto-hide applied jobs</span>
+          <label class="toggle-switch">
+            <input type="checkbox" id="hideAppliedToggle" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="toggle-item">
+          <span class="toggle-label">Auto-hide "Won't recommend" jobs</span>
+          <label class="toggle-switch">
+            <input type="checkbox" id="hideWontRecommendToggle" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Blocked Companies Section -->
+    <div class="filter-section">
+      <h3>Blocked Companies</h3>
+      <div class="add-company-form">
+        <input type="text" id="companyInput" placeholder="Enter company name">
+        <button id="addCompanyButton">Add</button>
+      </div>
+      <div id="blockedCompaniesList" class="list-container">
+        <div class="empty-state">No blocked companies yet</div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Dismissed Jobs Section -->
+    <div class="filter-section">
+      <h3>Dismissed Jobs (<span id="dismissedCount">0</span>)</h3>
+      <div id="dismissedJobsList" class="list-container">
+        <div class="empty-state">No dismissed jobs yet</div>
+      </div>
+      <button id="clearAllDismissedButton" class="danger" style="margin-top: 12px;">Clear All Dismissed</button>
+    </div>
+  </div>
+
   <script src="popup.js"></script>
 </body>
 </html>

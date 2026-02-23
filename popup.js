@@ -3,6 +3,10 @@
 // ============================================================================
 
 document.addEventListener('DOMContentLoaded', async () => {
+  // Initialize tabs
+  initializeTabs();
+
+  // Load Notion config
   const config = await chrome.storage.sync.get(['notionToken', 'databaseId']);
 
   if (config.notionToken) {
@@ -15,11 +19,300 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Check if we're on a LinkedIn job page
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab.url.includes('linkedin.com/jobs/')) {
+  const isJobPage = tab.url.includes('linkedin.com/jobs/view/');
+  const isListingsPage = tab.url.includes('linkedin.com/jobs/');
+
+  if (!isJobPage) {
     showStatus('Please navigate to a LinkedIn job posting page', 'info');
     document.getElementById('saveButton').disabled = true;
+    document.getElementById('dismissButton').disabled = true;
+    document.getElementById('blockCompanyButton').disabled = true;
   }
+
+  // Load and display filters
+  await loadFiltersUI();
 });
+
+// ============================================================================
+// TAB MANAGEMENT
+// ============================================================================
+
+function initializeTabs() {
+  const tabButtons = document.querySelectorAll('.tab-button');
+  const tabContents = document.querySelectorAll('.tab-content');
+
+  tabButtons.forEach(button => {
+    button.addEventListener('click', () => {
+      const targetTab = button.dataset.tab;
+
+      // Update active states
+      tabButtons.forEach(btn => btn.classList.remove('active'));
+      tabContents.forEach(content => content.classList.remove('active'));
+
+      button.classList.add('active');
+      document.getElementById(`${targetTab}-tab`).classList.add('active');
+    });
+  });
+}
+
+// ============================================================================
+// FILTER MANAGEMENT
+// ============================================================================
+
+/**
+ * Load and display all filter data in the UI
+ */
+async function loadFiltersUI() {
+  const data = await chrome.storage.local.get(['dismissedJobs', 'blockedCompanies', 'settings']);
+
+  const dismissedJobs = data.dismissedJobs || {};
+  const blockedCompanies = data.blockedCompanies || [];
+  const settings = data.settings || { hideAppliedJobs: true, hideWontRecommend: true };
+
+  // Update settings toggles
+  document.getElementById('hideAppliedToggle').checked = settings.hideAppliedJobs;
+  document.getElementById('hideWontRecommendToggle').checked = settings.hideWontRecommend;
+
+  // Display dismissed jobs
+  displayDismissedJobs(dismissedJobs);
+
+  // Display blocked companies
+  displayBlockedCompanies(blockedCompanies);
+}
+
+/**
+ * Display dismissed jobs list
+ */
+function displayDismissedJobs(dismissedJobs) {
+  const container = document.getElementById('dismissedJobsList');
+  const countElement = document.getElementById('dismissedCount');
+  const jobs = Object.values(dismissedJobs);
+
+  countElement.textContent = jobs.length;
+
+  if (jobs.length === 0) {
+    container.innerHTML = '<div class="empty-state">No dismissed jobs yet</div>';
+    return;
+  }
+
+  // Sort by dismissed date (newest first)
+  jobs.sort((a, b) => b.dismissedAt - a.dismissedAt);
+
+  container.innerHTML = jobs.map(job => {
+    const date = new Date(job.dismissedAt).toLocaleDateString();
+    return `
+      <div class="list-item" data-job-id="${job.id}">
+        <div class="list-item-content">
+          <div class="list-item-title">${escapeHtml(job.title || 'Unknown Title')}</div>
+          <div class="list-item-subtitle">${escapeHtml(job.company || 'Unknown Company')} • ${date}</div>
+        </div>
+        <button class="undo-dismiss-button">Undo</button>
+      </div>
+    `;
+  }).join('');
+
+  // Add event listeners to undo buttons
+  container.querySelectorAll('.undo-dismiss-button').forEach(button => {
+    button.addEventListener('click', async (e) => {
+      const jobId = e.target.closest('.list-item').dataset.jobId;
+      await undoDismissJob(jobId);
+    });
+  });
+}
+
+/**
+ * Display blocked companies list
+ */
+function displayBlockedCompanies(blockedCompanies) {
+  const container = document.getElementById('blockedCompaniesList');
+
+  if (blockedCompanies.length === 0) {
+    container.innerHTML = '<div class="empty-state">No blocked companies yet</div>';
+    return;
+  }
+
+  container.innerHTML = blockedCompanies.map(company => `
+    <div class="list-item" data-company="${escapeHtml(company)}">
+      <div class="list-item-content">
+        <div class="list-item-title">${escapeHtml(company)}</div>
+      </div>
+      <button class="remove-company-button">Remove</button>
+    </div>
+  `).join('');
+
+  // Add event listeners to remove buttons
+  container.querySelectorAll('.remove-company-button').forEach(button => {
+    button.addEventListener('click', async (e) => {
+      const company = e.target.closest('.list-item').dataset.company;
+      await removeBlockedCompany(company);
+    });
+  });
+}
+
+/**
+ * Add a company to the blocked list
+ */
+async function addBlockedCompany(companyName) {
+  const data = await chrome.storage.local.get(['blockedCompanies']);
+  const blockedCompanies = data.blockedCompanies || [];
+
+  const normalizedName = companyName.trim();
+
+  if (!normalizedName) {
+    return;
+  }
+
+  // Check if already blocked
+  if (blockedCompanies.some(c => c.toLowerCase() === normalizedName.toLowerCase())) {
+    alert('This company is already blocked');
+    return;
+  }
+
+  blockedCompanies.push(normalizedName);
+  await chrome.storage.local.set({ blockedCompanies });
+
+  // Refresh UI
+  displayBlockedCompanies(blockedCompanies);
+
+  // Clear input
+  document.getElementById('companyInput').value = '';
+}
+
+/**
+ * Remove a company from the blocked list
+ */
+async function removeBlockedCompany(companyName) {
+  const data = await chrome.storage.local.get(['blockedCompanies']);
+  let blockedCompanies = data.blockedCompanies || [];
+
+  blockedCompanies = blockedCompanies.filter(c => c !== companyName);
+  await chrome.storage.local.set({ blockedCompanies });
+
+  // Refresh UI
+  displayBlockedCompanies(blockedCompanies);
+}
+
+/**
+ * Dismiss the current job (from job view page)
+ */
+async function dismissCurrentJob() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+  // Extract job ID from URL
+  const jobIdMatch = tab.url.match(/\/jobs\/view\/(\d+)/);
+  if (!jobIdMatch) {
+    showStatus('Could not extract job ID from URL', 'error');
+    return;
+  }
+
+  const jobId = jobIdMatch[1];
+
+  // Scrape job data to get title and company
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: tab.id, allFrames: true },
+      func: scrapeJobData,
+      args: [tab.url]
+    });
+
+    const jobData = results.find(r => r.result && r.result.title)?.result;
+
+    const data = await chrome.storage.local.get(['dismissedJobs']);
+    const dismissedJobs = data.dismissedJobs || {};
+
+    dismissedJobs[jobId] = {
+      id: jobId,
+      title: jobData?.title || 'Unknown Title',
+      company: jobData?.company || 'Unknown Company',
+      dismissedAt: Date.now()
+    };
+
+    await chrome.storage.local.set({ dismissedJobs });
+
+    showStatus('Job dismissed successfully!', 'success');
+
+    // Refresh UI
+    await loadFiltersUI();
+  } catch (error) {
+    showStatus('Error dismissing job: ' + error.message, 'error');
+  }
+}
+
+/**
+ * Block the company of the current job
+ */
+async function blockCurrentCompany() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: tab.id, allFrames: true },
+      func: scrapeJobData,
+      args: [tab.url]
+    });
+
+    const jobData = results.find(r => r.result && r.result.title)?.result;
+
+    if (!jobData || !jobData.company) {
+      showStatus('Could not extract company name', 'error');
+      return;
+    }
+
+    await addBlockedCompany(jobData.company);
+    showStatus(`Blocked company: ${jobData.company}`, 'success');
+  } catch (error) {
+    showStatus('Error blocking company: ' + error.message, 'error');
+  }
+}
+
+/**
+ * Undo dismissal of a job
+ */
+async function undoDismissJob(jobId) {
+  const data = await chrome.storage.local.get(['dismissedJobs']);
+  const dismissedJobs = data.dismissedJobs || {};
+
+  delete dismissedJobs[jobId];
+  await chrome.storage.local.set({ dismissedJobs });
+
+  // Refresh UI
+  await loadFiltersUI();
+}
+
+/**
+ * Clear all dismissed jobs
+ */
+async function clearAllDismissed() {
+  if (!confirm('Are you sure you want to clear all dismissed jobs? This cannot be undone.')) {
+    return;
+  }
+
+  await chrome.storage.local.set({ dismissedJobs: {} });
+
+  // Refresh UI
+  await loadFiltersUI();
+}
+
+/**
+ * Update settings
+ */
+async function updateSettings() {
+  const settings = {
+    hideAppliedJobs: document.getElementById('hideAppliedToggle').checked,
+    hideWontRecommend: document.getElementById('hideWontRecommendToggle').checked
+  };
+
+  await chrome.storage.local.set({ settings });
+}
+
+/**
+ * Escape HTML to prevent XSS
+ */
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
 
 // ============================================================================
 // CONFIGURATION MANAGEMENT
@@ -40,6 +333,48 @@ document.getElementById('saveConfig').addEventListener('click', async () => {
   });
 
   showStatus('Configuration saved successfully!', 'success');
+});
+
+// ============================================================================
+// FILTER EVENT LISTENERS
+// ============================================================================
+
+// Add company button
+document.getElementById('addCompanyButton').addEventListener('click', async () => {
+  const companyName = document.getElementById('companyInput').value;
+  await addBlockedCompany(companyName);
+});
+
+// Company input - add on Enter key
+document.getElementById('companyInput').addEventListener('keypress', async (e) => {
+  if (e.key === 'Enter') {
+    const companyName = document.getElementById('companyInput').value;
+    await addBlockedCompany(companyName);
+  }
+});
+
+// Clear all dismissed button
+document.getElementById('clearAllDismissedButton').addEventListener('click', async () => {
+  await clearAllDismissed();
+});
+
+// Dismiss current job button
+document.getElementById('dismissButton').addEventListener('click', async () => {
+  await dismissCurrentJob();
+});
+
+// Block current company button
+document.getElementById('blockCompanyButton').addEventListener('click', async () => {
+  await blockCurrentCompany();
+});
+
+// Settings toggles
+document.getElementById('hideAppliedToggle').addEventListener('change', async () => {
+  await updateSettings();
+});
+
+document.getElementById('hideWontRecommendToggle').addEventListener('change', async () => {
+  await updateSettings();
 });
 
 // ============================================================================
@@ -626,11 +961,11 @@ function scrapeJobData(mainPageUrl) {
             const isList = node.tagName === 'UL' || node.tagName === 'OL';
 
             // Check if this is a paragraph element
-            // But if P contains block-level children (UL, OL, LI), treat it as a container instead
+            // But if P contains block-level children (UL, OL, LI, BR, P), treat it as a container instead
             let isParagraph = false;
             if (node.tagName === 'P') {
-              // Check if P contains block-level children
-              const hasBlockChildren = node.querySelector('ul, ol, li, br');
+              // Check if P contains block-level children (including nested <p> tags, e.g. LinkedIn's expandable-text-box pattern)
+              const hasBlockChildren = node.querySelector('ul, ol, li, br, p');
               if (hasBlockChildren) {
                 // Treat as container, not paragraph
                 console.log('[Scraper] P element contains block children, treating as container');
