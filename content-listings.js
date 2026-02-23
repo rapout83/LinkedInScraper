@@ -256,12 +256,15 @@ function setupDismissButtonForCard(card) {
     if (jobData.id) {
       // Add to dismissed list
       await addToDismissedList(jobData);
-      console.log('[LinkedIn Filter] Auto-dismissed job:', jobData.id, jobData.title);
+      console.log('[LinkedIn Filter] Dismissed job:', jobData.id, jobData.title);
 
-      // Immediately hide the card (don't wait for LinkedIn's animation)
-      hideJobCard(card, 'manually dismissed');
+      // Reset processed flag so we can re-process and hide the card
+      card.dataset.linkedinFilterProcessed = 'false';
+
+      // Re-process the card to apply the "dismissed" filter and hide it
+      processJobCard(card);
     }
-  }, { capture: true }); // Use capture to intercept before LinkedIn's handler
+  }, true); // Use capture phase to run before LinkedIn's handler
 
   // Mark as set up
   card.dataset.dismissListenerAdded = 'true';
