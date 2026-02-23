@@ -37,12 +37,6 @@ function isPageReady() {
  * Initialize the filter by loading settings from storage and setting up observers
  */
 async function init() {
-  // Check if we're in the right context (has job listings)
-  if (!isPageReady()) {
-    console.log('[LinkedIn Filter] No job listings found, skipping initialization');
-    return;
-  }
-
   console.log('[LinkedIn Filter] Initializing...');
 
   // Load settings from storage
@@ -515,9 +509,42 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 // START
 // ============================================================================
 
+/**
+ * Attempts initialization with retry logic
+ * Following the pattern from scrapeJobData in popup.js
+ */
+function attemptInit() {
+  // Try immediately if page is ready
+  if (isPageReady()) {
+    init();
+    return;
+  }
+
+  // If not ready, set up observer to retry when DOM changes
+  console.log('[LinkedIn Filter] Waiting for job listings to load...');
+  const MAX_WAIT_TIME_MS = 10000;
+  let observer = null;
+
+  const timeout = setTimeout(() => {
+    if (observer) observer.disconnect();
+    console.log('[LinkedIn Filter] Timeout: No job listings found');
+  }, MAX_WAIT_TIME_MS);
+
+  observer = new MutationObserver(() => {
+    if (isPageReady()) {
+      clearTimeout(timeout);
+      observer.disconnect();
+      console.log('[LinkedIn Filter] Job listings detected');
+      init();
+    }
+  });
+
+  observer.observe(document.body, { childList: true, subtree: true });
+}
+
 // Initialize when DOM is ready
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init);
+  document.addEventListener('DOMContentLoaded', attemptInit);
 } else {
-  init();
+  attemptInit();
 }
