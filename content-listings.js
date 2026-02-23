@@ -297,12 +297,14 @@ function extractJobData(card) {
   data.isApplied = cardTextLower.includes('applied') &&
                    !cardTextLower.includes('easy apply'); // Exclude "Easy Apply" false positives
 
-  // Check for "We won't show you" message
+  // Check for "We won't show you" or "We won't recommend" message
   const cardText = card.innerText || card.textContent || '';
   data.hasWontRecommendMessage = cardText.includes('We won\'t show you this job again') ||
                                   cardText.includes('We won't show you this job again') ||
                                   cardText.includes('won\'t show you') ||
-                                  cardText.includes('We won\'t recommend this job');
+                                  cardText.includes('We won\'t recommend this job') ||
+                                  cardText.includes('We won't recommend this job') ||
+                                  cardText.includes('won\'t recommend');
 
   return data;
 }
