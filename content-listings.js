@@ -3,8 +3,34 @@
 // Filters out dismissed jobs, blocked companies, and applied jobs
 // ============================================================================
 
-console.log('[LinkedIn Filter] Content script loaded on listings page');
+// Only run in frames that have LinkedIn job listings
+// This check ensures we don't run in wrong iframes/contexts
+function hasLinkedInJobListings() {
+  const jobListSelectors = [
+    'li.jobs-search-results__list-item',
+    'li.scaffold-layout__list-item',
+    'div.job-card-container',
+    'div.jobs-search-results__list-item',
+    '[data-job-id]',
+    'ul.scaffold-layout__list-container'
+  ];
 
+  return jobListSelectors.some(selector => document.querySelector(selector) !== null);
+}
+
+// Check if we're in the right context before initializing
+// Wait a moment for the DOM to potentially load
+setTimeout(() => {
+  if (!hasLinkedInJobListings()) {
+    // Not in a job listings page/frame, silently exit
+    return;
+  }
+
+  console.log('[LinkedIn Filter] Content script loaded on listings page');
+  initializeContentScript();
+}, 100);
+
+function initializeContentScript() {
 // Global state
 let dismissedJobs = {};
 let blockedCompanies = [];
@@ -499,3 +525,5 @@ if (document.readyState === 'loading') {
 } else {
   init();
 }
+
+} // End of initializeContentScript()
