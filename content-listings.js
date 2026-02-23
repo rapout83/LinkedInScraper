@@ -26,10 +26,9 @@ async function init() {
   // Load settings from storage
   await loadSettings();
 
-  // Process existing job cards
+  // Wait for job cards to load, then process them
+  await waitForJobCards();
   processAllJobCards();
-
-  // Set up X button listeners for existing cards
   setupDismissButtonListeners();
 
   // Set up MutationObserver to watch for new job cards (infinite scroll)
@@ -54,14 +53,51 @@ async function init() {
       console.log('[LinkedIn Filter] URL changed, re-initializing');
       lastUrl = currentUrl;
       // Wait for new content to load
-      setTimeout(() => {
+      waitForJobCards().then(() => {
         processAllJobCards();
         setupDismissButtonListeners();
-      }, 1000);
+      });
     }
   }).observe(document, { subtree: true, childList: true });
 
   console.log('[LinkedIn Filter] Initialization complete');
+}
+
+/**
+ * Wait for job cards to appear in the DOM
+ */
+function waitForJobCards() {
+  return new Promise((resolve) => {
+    // Check if cards already exist
+    if (findJobCards().length > 0) {
+      console.log('[LinkedIn Filter] Job cards found immediately');
+      resolve();
+      return;
+    }
+
+    console.log('[LinkedIn Filter] Waiting for job cards to load...');
+
+    // Wait for cards to appear
+    const observer = new MutationObserver(() => {
+      if (findJobCards().length > 0) {
+        console.log('[LinkedIn Filter] Job cards detected');
+        observer.disconnect();
+        resolve();
+      }
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+
+    // Timeout after 10 seconds
+    setTimeout(() => {
+      console.log('[LinkedIn Filter] Timeout waiting for job cards');
+      observer.disconnect();
+      resolve();
+    }, 10000);
+  });
 }
 
 /**
