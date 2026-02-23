@@ -299,12 +299,14 @@ function extractJobData(card) {
 
   // Check for "We won't show you" or "We won't recommend" message
   const cardText = card.innerText || card.textContent || '';
-  data.hasWontRecommendMessage = cardText.includes('We won\'t show you this job again') ||
-                                  cardText.includes('We won't show you this job again') ||
-                                  cardText.includes('won\'t show you') ||
-                                  cardText.includes('We won\'t recommend this job') ||
-                                  cardText.includes('We won't recommend this job') ||
-                                  cardText.includes('won\'t recommend');
+  const wontShowPatterns = [
+    "We won't show you this job again",
+    "won't show you",
+    "We won't recommend this job",
+    "We won't recommend",
+    "won't recommend"
+  ];
+  data.hasWontRecommendMessage = wontShowPatterns.some(pattern => cardText.includes(pattern));
 
   return data;
 }
