@@ -222,9 +222,7 @@ function setupDismissButtonForCard(card) {
     const buttons = card.querySelectorAll('button');
     dismissButton = Array.from(buttons).find(btn => {
       const ariaLabel = btn.getAttribute('aria-label') || '';
-      const hasDismissIcon = btn.querySelector('svg[data-test-icon="dismiss-small"]');
-      const hasXIcon = btn.querySelector('svg[data-test-icon="x-small"]');
-      return ariaLabel.toLowerCase().includes('dismiss') || hasDismissIcon || hasXIcon;
+      return ariaLabel.toLowerCase().includes('dismiss');
     });
   }
 
