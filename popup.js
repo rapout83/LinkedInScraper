@@ -19,14 +19,27 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Check if we're on a LinkedIn job page
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  const isJobPage = tab.url.includes('linkedin.com/jobs/view/');
-  const isListingsPage = tab.url.includes('linkedin.com/jobs/');
+  const isJobViewPage = tab.url && (
+    tab.url.includes('linkedin.com/jobs/view/') ||
+    tab.url.match(/linkedin\.com\/jobs\/[^\/]+\/\d+/)
+  );
+  const isListingsPage = tab.url && tab.url.includes('linkedin.com/jobs/');
 
-  if (!isJobPage) {
-    showStatus('Please navigate to a LinkedIn job posting page', 'info');
-    document.getElementById('saveButton').disabled = true;
-    document.getElementById('dismissButton').disabled = true;
-    document.getElementById('blockCompanyButton').disabled = true;
+  // Enable/disable buttons based on page type
+  const saveButton = document.getElementById('saveButton');
+  const dismissButton = document.getElementById('dismissButton');
+  const blockCompanyButton = document.getElementById('blockCompanyButton');
+
+  if (!isJobViewPage) {
+    showStatus('Navigate to a job posting to use Save/Dismiss/Block buttons', 'info');
+    if (saveButton) saveButton.disabled = true;
+    if (dismissButton) dismissButton.disabled = true;
+    if (blockCompanyButton) blockCompanyButton.disabled = true;
+  } else {
+    // Enable buttons on job view pages
+    if (saveButton) saveButton.disabled = false;
+    if (dismissButton) dismissButton.disabled = false;
+    if (blockCompanyButton) blockCompanyButton.disabled = false;
   }
 
   // Load and display filters

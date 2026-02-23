@@ -29,6 +29,9 @@ async function init() {
   // Process existing job cards
   processAllJobCards();
 
+  // Set up X button listeners for existing cards
+  setupDismissButtonListeners();
+
   // Set up MutationObserver to watch for new job cards (infinite scroll)
   setupObserver();
 
@@ -174,6 +177,87 @@ function processJobCard(card) {
   }
 }
 
+// ============================================================================
+// DISMISS BUTTON (X BUTTON) INTERCEPTION
+// ============================================================================
+
+/**
+ * Set up click listeners on all X (dismiss) buttons in job cards
+ */
+function setupDismissButtonListeners() {
+  const jobCards = findJobCards();
+
+  jobCards.forEach(card => {
+    setupDismissButtonForCard(card);
+  });
+}
+
+/**
+ * Set up dismiss button listener for a single card
+ */
+function setupDismissButtonForCard(card) {
+  // Skip if already set up
+  if (card.dataset.dismissListenerAdded === 'true') {
+    return;
+  }
+
+  // Find the dismiss/X button - LinkedIn uses various selectors
+  const dismissButtonSelectors = [
+    'button[aria-label*="Dismiss"]',
+    'button[aria-label*="dismiss"]',
+    'button.dismiss',
+    'button.job-card-container__action',
+    '[data-test-job-card-dismiss]',
+    'button[data-control-name*="dismiss"]'
+  ];
+
+  let dismissButton = null;
+  for (const selector of dismissButtonSelectors) {
+    dismissButton = card.querySelector(selector);
+    if (dismissButton) break;
+  }
+
+  // Also try to find X icon buttons without specific dismiss labels
+  if (!dismissButton) {
+    const buttons = card.querySelectorAll('button');
+    dismissButton = Array.from(buttons).find(btn => {
+      const ariaLabel = btn.getAttribute('aria-label') || '';
+      return ariaLabel.toLowerCase().includes('dismiss') ||
+             btn.querySelector('svg[data-test-icon="dismiss-small"]') ||
+             btn.querySelector('svg[data-test-icon="x-small"]');
+    });
+  }
+
+  if (!dismissButton) {
+    // No dismiss button found, skip
+    return;
+  }
+
+  // Add click listener
+  dismissButton.addEventListener('click', async (e) => {
+    console.log('[LinkedIn Filter] Dismiss button clicked');
+
+    // Extract job data
+    const jobData = extractJobData(card);
+
+    if (jobData.id) {
+      // Add to dismissed list
+      await addToDismissedList(jobData);
+      console.log('[LinkedIn Filter] Auto-dismissed job:', jobData.id, jobData.title);
+
+      // Immediately hide the card (don't wait for LinkedIn's animation)
+      hideJobCard(card, 'manually dismissed');
+    }
+  }, { capture: true }); // Use capture to intercept before LinkedIn's handler
+
+  // Mark as set up
+  card.dataset.dismissListenerAdded = 'true';
+}
+
+// ============================================================================
+// JOB DATA EXTRACTION
+// ============================================================================
+
 /**
  * Extract job data from a job card element
  */
@@ -210,22 +294,17 @@ function extractJobData(card) {
     data.company = data.company.split('·')[0].trim();
   }
 
-  // Check if Applied
-  const appliedIndicators = [
-    card.querySelector('.job-card-container__footer-item--highlighted'),
-    card.querySelector('[data-test-job-card-footer-applied]'),
-    Array.from(card.querySelectorAll('*')).find(el =>
-      el.textContent?.trim() === 'Applied' ||
-      el.innerText?.trim() === 'Applied'
-    )
-  ];
-  data.isApplied = appliedIndicators.some(indicator => indicator !== null && indicator !== undefined);
+  // Check if Applied - look for "Applied" text anywhere in the card
+  const cardTextLower = (card.innerText || card.textContent || '').toLowerCase();
+  data.isApplied = cardTextLower.includes('applied') &&
+                   !cardTextLower.includes('easy apply'); // Exclude "Easy Apply" false positives
 
-  // Check for "We won't recommend" message
+  // Check for "We won't show you" message
   const cardText = card.innerText || card.textContent || '';
-  data.hasWontRecommendMessage = cardText.includes('We won\'t recommend this job anymore') ||
-                                  cardText.includes('We won't recommend this job') ||
-                                  cardText.includes('won\'t recommend');
+  data.hasWontRecommendMessage = cardText.includes('We won\'t show you this job again') ||
+                                  cardText.includes('We won't show you this job again') ||
+                                  cardText.includes('won\'t show you') ||
+                                  cardText.includes('We won\'t recommend this job');
 
   return data;
 }
@@ -298,12 +377,16 @@ function setupObserver() {
         if (node.nodeType === 1) { // Element node
           if (isJobCard(node)) {
             processJobCard(node);
+            setupDismissButtonForCard(node);
             hasNewCards = true;
           } else {
             // Check if the node contains job cards
             const cards = node.querySelectorAll ? findJobCardsIn(node) : [];
             if (cards.length > 0) {
-              cards.forEach(card => processJobCard(card));
+              cards.forEach(card => {
+                processJobCard(card);
+                setupDismissButtonForCard(card);
+              });
               hasNewCards = true;
             }
           }
